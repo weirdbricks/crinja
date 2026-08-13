@@ -77,6 +77,17 @@ migration knows what exists and where to find it (paths relative to the
   also adds the `unique` filter, unregistered entirely upstream. Both the
   leniency fix and `unique` are **good upstream PR candidates** - neither
   is Ansible-specific.
+- `src/crystal_play/crinja_namespace_ext.cr` - `namespace()` builtin was
+  entirely unregistered, and `{% set ns.attr = ... %}` dotted-target
+  assignment (real Jinja2's one exception to `{% set %}`'s bare-name-only
+  rule) wasn't parseable at all. Adds a `Crinja::Namespace` class
+  (`include Crinja::Object`, mutable Hash-backed attributes) + a
+  `Crinja.function(:namespace)` registration, and a full replacement of
+  `Tag::Set#interpret` adding a third target-shape branch alongside the
+  existing block-set and keyword-list forms. **Good upstream PR
+  candidate** - core Jinja2 language feature, not Ansible-specific, and
+  the single largest missing-feature gap this fork's differential harness
+  found (it's what ended crystal-ansible's round 21 benchmark).
 
 Filters that ARE Ansible-specific and intentionally live only in
 crystal-ansible's `src/crystal_play/jinja_filters.cr`, never migrate here:
