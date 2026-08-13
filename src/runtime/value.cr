@@ -523,9 +523,25 @@ struct Crinja::Value
     end
   end
 
-  # Returns `true` unless this value is `false`, `0`, `nil` or `#undefined?`
+  # Returns `true` unless this value is `false`, `0`, `nil`,
+  # `#undefined?`, or an empty String/SafeString/Array/Hash - matching
+  # real Python/Jinja2 truthiness (`bool("") == False`, `bool([]) ==
+  # False`, `bool({}) == False`), which the previous, narrower check
+  # missed entirely.
   def truthy?
-    !(@raw == false || @raw == 0 || @raw.nil? || undefined?)
+    return false if undefined?
+
+    case raw = @raw
+    when Bool         then raw
+    when Nil          then false
+    when Number       then raw != 0
+    when String       then !raw.empty?
+    when SafeString   then raw.size != 0
+    when Array(Value) then !raw.empty?
+    when Dictionary   then !raw.empty?
+    else
+      true
+    end
   end
 
   # Returns `true` if this value is a `Undefined`

@@ -71,6 +71,49 @@ class Crinja::Parser::ExpressionParser
   end
 
   def parse_expression
+    parse_condexpr.tap do |expression|
+      expression.location_end = current_token.location
+    end
+  end
+
+  # Real Jinja2/Python's inline conditional (ternary) - `<expr1> if
+  # <condition> else <expr2>` - mirrors real Jinja2's own
+  # `parser.py#parse_condexpr`: right-associative (the else-branch may
+  # itself be another ternary), and the `else` clause is optional
+  # (yields Undefined when the condition is false and there's no else).
+  private def parse_condexpr
+    true_value = parse_logical_or
+
+    if current_token.kind == Kind::IDENTIFIER && current_token.value == "if"
+      next_token
+      condition = parse_logical_or
+
+      false_value = nil
+      if current_token.kind == Kind::IDENTIFIER && current_token.value == "else"
+        next_token
+        false_value = parse_condexpr
+      end
+
+      true_value = AST::CondExpr.new(condition, true_value, false_value).at(true_value)
+    end
+
+    true_value
+  end
+
+  # `parse_expression` is the single shared entry point for every
+  # expression-parsing context, including `{% for x in ITERABLE %}`'s own
+  # `ITERABLE` slot - which collides with the for-tag's OWN, separate
+  # grammar feature: `{% for x in y if COND %}`, an item filter clause
+  # where COND may reference the loop variable itself. Without this
+  # separate entry point, `parse_condexpr` sees the bare `if` right after
+  # the iterable and greedily treats it as an inline ternary's own `if`,
+  # evaluating COND once, eagerly, before the loop ever binds its item
+  # variable at all. Real Jinja2 has this exact same potential ambiguity
+  # in its own grammar and resolves it exactly this way: parse the
+  # for-loop's iterable with ternary-parsing disabled, then explicitly
+  # check for a literal `if` token afterward as the for-tag's own
+  # separate clause (see `tag/for.cr`'s own `parse_for_tag`).
+  def parse_expression_no_condexpr
     parse_logical_or.tap do |expression|
       expression.location_end = current_token.location
     end
@@ -82,11 +125,70 @@ class Crinja::Parser::ExpressionParser
   parse_operator :logical_and, :equal_not, AND do
     AST::BinaryExpression.new operator, left, right
   end
-  parse_operator :equal_not, :less_greater, EQUAL, NOT_EQUAL, NOT do
-    AST::ComparisonExpression.new operator, left, right
+  # `NOT` deliberately excluded from this level's own operator set - see
+  # `parse_less_greater`'s own comment just below for why (a bare `not`
+  # is never a valid binary comparator on its own; leaving it out here is
+  # what lets `parse_less_greater` see it as part of a `not in` pair
+  # instead).
+  private def parse_equal_not
+    left = parse_less_greater
+
+    while true
+      if current_token.kind == Kind::OPERATOR
+        case current_token.value
+        when Symbol::OP_EQUAL, Symbol::OP_NOT_EQUAL
+          operator = current_token.value
+          next_token
+          right = parse_less_greater
+          left = AST::ComparisonExpression.new(operator, left, right).at(left, right)
+        else
+          return left
+        end
+      else
+        return left
+      end
+    end
   end
-  parse_operator :less_greater, :tilde, LESS, GREATER, LESS_EQUAL, GREATER_EQUAL do
-    AST::ComparisonExpression.new operator, left, right
+
+  # `in`/`not in` sit at the same "comparison" precedence level as
+  # `==`/`!=`/`<`/`>` in real Jinja2. `in` is lexed as a plain
+  # `Kind::IDENTIFIER` (only `and`/`or`/`not` get their own
+  # `Kind::OPERATOR` token, see `base_lexer.cr`'s `consume_name`), so it
+  # needs its own explicit check here rather than fitting the
+  # `parse_operator` macro's operator-token-list shape.
+  private def parse_less_greater
+    left = parse_tilde
+
+    while true
+      if current_token.kind == Kind::OPERATOR
+        case current_token.value
+        when Symbol::OP_LESS, Symbol::OP_GREATER, Symbol::OP_LESS_EQUAL, Symbol::OP_GREATER_EQUAL
+          operator = current_token.value
+          next_token
+          right = parse_tilde
+          left = AST::ComparisonExpression.new(operator, left, right).at(left, right)
+          next
+        end
+      end
+
+      if current_token.kind == Kind::IDENTIFIER && current_token.value == "in"
+        next_token
+        right = parse_tilde
+        left = AST::ComparisonExpression.new("in", left, right).at(left, right)
+        next
+      end
+
+      if current_token.kind == Kind::OPERATOR && current_token.value == Symbol::OP_NOT &&
+         (peeked = peek_token?) && peeked.kind == Kind::IDENTIFIER && peeked.value == "in"
+        next_token # consume "not"
+        next_token # consume "in"
+        right = parse_tilde
+        left = AST::ComparisonExpression.new("not in", left, right).at(left, right)
+        next
+      end
+
+      return left
+    end
   end
   parse_operator :tilde, :add_sub, TILDE do
     AST::BinaryExpression.new operator, left, right
@@ -154,6 +256,14 @@ class Crinja::Parser::ExpressionParser
     end
   end
 
+  # Real Jinja2/Python's unary `not` binds LOOSER than a comparison, so
+  # `not a in b` means `not (a in b)`, and likewise `not a is b` means
+  # `not (a is b)` - never `(not a) in/is b`. The two cases need separate
+  # handling here because `in`/`not in` (`parse_less_greater`, above) and
+  # `is`/`is not` TESTS (`parse_filter`, below - one level HIGHER in this
+  # chain, since it calls `parse_unary_expression` for its own `left`)
+  # sit at different points in the precedence chain relative to this
+  # method.
   private def parse_unary_expression
     start_location = current_token.location
 
@@ -162,6 +272,35 @@ class Crinja::Parser::ExpressionParser
       when Symbol::OP_PLUS, Symbol::OP_MINUS, Symbol::OP_NOT
         next_token
         value = parse_unary_expression
+
+        if operator == Symbol::OP_NOT && current_token.kind == Kind::IDENTIFIER && current_token.value == "in"
+          next_token
+          right = parse_tilde
+          value = AST::ComparisonExpression.new("in", value, right).at(value, right)
+        end
+
+        if operator == Symbol::OP_NOT && current_token.kind == Kind::TEST
+          next_token
+
+          not_location = nil
+          if_token Kind::OPERATOR, "not" do
+            not_location = current_token.location
+            next_token
+          end
+
+          identifier = if_token(Kind::NONE) do
+            AST::IdentifierLiteral.new(current_token.value).at(current_token.location)
+          end || assert_token(Kind::IDENTIFIER) do
+            AST::IdentifierLiteral.new(current_token.value).at(current_token.location)
+          end
+          identifier.location_end = next_token.location
+
+          call = parse_call_expression identifier, with_parenthesis: false
+
+          value = AST::TestExpression.new(value, identifier, call.argumentlist, call.keyword_arguments).at(value, call)
+          value = AST::UnaryExpression.new("not", value).at(not_location, value.location_end) if not_location
+        end
+
         return AST::UnaryExpression.new(operator, value).at(start_location, value.location_end)
       when Symbol::OP_TIMES
         # splash operator
@@ -190,6 +329,62 @@ class Crinja::Parser::ExpressionParser
     end
   end
 
+  # Real Python/Jinja2 allow a postfix trailer - `(call)`, `[index or
+  # slice]`, `.attr` - after ANY primary expression, not just a bare
+  # identifier: `(a + b)[0]`, `(x if y else z).attr`. Shared by both
+  # `parse_parenthesis_expression` (a parenthesized subexpression is a
+  # primary too) and `parse_variable_expression` (the original, and far
+  # more common, case) rather than duplicated between them.
+  private def parse_postfix_trailers(expression : AST::ExpressionNode) : AST::ExpressionNode
+    while true
+      case current_token.kind
+      when Kind::LEFT_PAREN
+        next_token
+        expression = parse_call_expression(expression)
+      when Kind::LEFT_BRACKET
+        next_token
+
+        slice_start = current_token.kind == Kind::DICT_ASSIGN ? nil : parse_expression
+
+        if current_token.kind == Kind::DICT_ASSIGN
+          next_token
+
+          slice_stop = (current_token.kind == Kind::DICT_ASSIGN || current_token.kind == Kind::RIGHT_BRACKET) ? nil : parse_expression
+
+          slice_step = nil
+          if current_token.kind == Kind::DICT_ASSIGN
+            next_token
+            slice_step = current_token.kind == Kind::RIGHT_BRACKET ? nil : parse_expression
+          end
+
+          end_location = current_token.location
+          expect Kind::RIGHT_BRACKET
+          expression = AST::SliceExpression.new(expression, slice_start, slice_stop, slice_step).at(expression.location_start, end_location)
+        else
+          end_location = current_token.location
+          expect Kind::RIGHT_BRACKET
+          expression = AST::IndexExpression.new(expression, slice_start.not_nil!).at(expression.location_start, end_location)
+        end
+      when Kind::POINT
+        next_token
+        member = AST::Empty.new
+
+        if current_token.kind == Kind::IDENTIFIER || current_token.kind == Kind::INTEGER
+          member = AST::IdentifierLiteral.new(current_token.value).at(current_token.location)
+          member.location_end = next_token.location
+        else
+          unexpected_token Kind::IDENTIFIER
+        end
+
+        if member.is_a? AST::IdentifierLiteral
+          expression = AST::MemberExpression.new(expression, member).at(expression, member)
+        end
+      else
+        return expression
+      end
+    end
+  end
+
   private def parse_parenthesis_expression
     if_token Kind::LEFT_PAREN do
       # parse subexpression in parenthesis
@@ -213,7 +408,7 @@ class Crinja::Parser::ExpressionParser
       end
       expect Kind::RIGHT_PAREN
 
-      return expression
+      return parse_postfix_trailers(expression)
     end
 
     parse_variable_expression
@@ -222,38 +417,24 @@ class Crinja::Parser::ExpressionParser
   private def parse_variable_expression
     identifier = parse_literal
     identifier.location_end = current_token.location
-
-    while true
-      case current_token.kind
-      when Kind::LEFT_PAREN
-        next_token
-        identifier = parse_call_expression(identifier)
-      when Kind::LEFT_BRACKET
-        next_token
-        arg = parse_expression
-
-        end_location = current_token.location
-        expect Kind::RIGHT_BRACKET
-        identifier = AST::IndexExpression.new(identifier, arg).at(identifier.location_start, end_location)
-      when Kind::POINT
-        next_token
-        member = AST::Empty.new
-
-        if current_token.kind == Kind::IDENTIFIER || current_token.kind == Kind::INTEGER
-          member = AST::IdentifierLiteral.new(current_token.value).at(current_token.location)
-          member.location_end = next_token.location
-        else
-          unexpected_token Kind::IDENTIFIER
-        end
-
-        if member.is_a? AST::IdentifierLiteral
-          identifier = AST::MemberExpression.new(identifier, member).at(identifier, member)
-        end
-      else
-        return identifier
-      end
-    end
+    parse_postfix_trailers(identifier)
   end
+
+  # A no-parens filter/test call's argument list has no way to stop at a
+  # reserved keyword - `in`/`if`/`else`/`and`/`or`/`recursive` aren't
+  # their own token `Kind` (only `and`/`or`/`not` get `Kind::OPERATOR`,
+  # see `base_lexer.cr`), so without this check a no-parens call greedily
+  # swallows the next keyword as an implicit argument
+  # (`x | string in [...]` corrupted by `string`'s own zero-arg call
+  # eating `in`; `x if y is sometest else z` corrupted by `sometest`'s
+  # own zero-arg call eating `else`, breaking the surrounding inline
+  # ternary entirely). Real Jinja2's own grammar only ever allows a
+  # SINGLE bare argument for a no-parens call (`is divisibleby 3`, `is
+  # sameas other`) - stopping BEFORE parsing any argument at all when the
+  # very next token is one of these reserved words at least fixes the
+  # zero-argument case (the overwhelmingly common one) without
+  # reproducing that full one-argument grammar here.
+  NO_PARENS_CALL_STOP_WORDS = {"in", "if", "else", "and", "or", "recursive"}
 
   private def parse_call_expression(identifier, with_parenthesis = true)
     end_tokens = if with_parenthesis
@@ -262,7 +443,11 @@ class Crinja::Parser::ExpressionParser
                    [Kind::EOF, Kind::EXPR_END, Kind::TAG_END, Kind::OPERATOR, Kind::PIPE, Kind::TEST, Kind::RIGHT_BRACKET, Kind::RIGHT_PAREN]
                  end
 
-    args = parse_expression_list(end_tokens)
+    args = if !with_parenthesis && current_token.kind == Kind::IDENTIFIER && NO_PARENS_CALL_STOP_WORDS.includes?(current_token.value)
+             AST::ExpressionList.new([] of AST::ExpressionNode).at(current_token.location)
+           else
+             parse_expression_list(end_tokens)
+           end
 
     keyword = nil
     if_token Kind::KW_ASSIGN do

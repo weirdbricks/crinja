@@ -33,7 +33,7 @@ abstract class Crinja::Operator
     register_default [Plus, Minus, Divide, IntDivide, Modulo, Multiply, Power,
                       Tilde,
                       Equals, NotEquals, GreaterThan, GreaterThanEquals, LowerThan, LowerThanEquals,
-                      And, Or, Not]
+                      And, Or, Not, In, NotIn]
   end
 
   module Binary

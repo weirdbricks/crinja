@@ -1,4 +1,6 @@
 module Crinja::Filter
+  # Real Jinja2's `list` filter is lenient about an Undefined target
+  # (`{{ some_unset_list | list }}` renders `[]`, not a crash).
   Crinja.filter :list do
     value = target.raw
 
@@ -7,6 +9,8 @@ module Crinja::Filter
       value.chars
     when Array
       value
+    when Undefined
+      [] of Value
     when .responds_to?(:to_a)
       target.to_a
     else
@@ -78,7 +82,9 @@ module Crinja::Filter
     end
   end
 
-  Crinja.filter(:first) { target.first.raw }
+  # Lenient about an Undefined target, matching real Jinja2's `soft_str`/
+  # exception-swallowing behavior for `first` on an unset value.
+  Crinja.filter(:first) { target.undefined? ? UNDEFINED : target.first.raw }
   Crinja.filter(:last) { target.last.raw }
   Crinja.filter(:length) { target.size }
   Crinja::Filter::Library.alias "count", "length"
@@ -96,26 +102,45 @@ module Crinja::Filter
     end
   end
 
+  # Real Python `sum()` supports any `start` value `+` is defined for,
+  # not just numbers - a common idiom flattens a list of lists via
+  # `| sum(attribute='packages', start=[])`. Branches on `start`'s own
+  # type: an array-typed `start` concatenates, everything else keeps the
+  # numeric-sum behavior.
   Crinja.filter({attribute: nil, start: 0}, :sum) do
     attribute = arguments["attribute"].as_s?
+    start = arguments["start"]
 
-    start = arguments["start"].as_number
-    sum = start
+    if (start_array = start.raw).is_a?(Array(Value))
+      result = start_array.dup
+      target.each do |item|
+        item = Resolver.resolve_dig(attribute, item) unless attribute.nil?
+        raw = item.raw
+        if raw.is_a?(Array(Value))
+          result.concat(raw)
+        else
+          result << item
+        end
+      end
+      result
+    else
+      sum = start.as_number
 
-    target.each do |value|
-      unless attribute.nil?
-        value = Resolver.resolve_dig(attribute, value)
+      target.each do |value|
+        unless attribute.nil?
+          value = Resolver.resolve_dig(attribute, value)
+        end
+
+        raw = value.raw
+        if raw.is_a?(Crinja::Number)
+          sum += raw
+        else
+          raise TypeError.new("cannot add #{raw.class} to sum, value: #{raw.inspect}")
+        end
       end
 
-      raw = value.raw
-      if raw.is_a?(Crinja::Number)
-        sum += raw
-      else
-        raise TypeError.new("cannot add #{raw.class} to sum, value: #{raw.inspect}")
-      end
+      sum
     end
-
-    sum
   end
 
   Crinja.filter(:random) do
@@ -208,5 +233,35 @@ module Crinja::Filter
         end
       end
     end
+  end
+
+  # `max`/`min` - real Jinja2 core filters. Compares elements with
+  # `Value`'s own `<=>` (`Comparable`), matching real Jinja2's general
+  # (not numeric-only) comparison.
+  Crinja.filter(:max) { target.each.to_a.max?.try(&.raw) }
+  Crinja.filter(:min) { target.each.to_a.min?.try(&.raw) }
+
+  # `unique(case_sensitive=false, attribute=none)` - real Jinja2 core
+  # filter. Preserves first-occurrence order.
+  Crinja.filter({case_sensitive: false, attribute: nil}, :unique) do
+    case_sensitive = arguments["case_sensitive"].truthy?
+    attribute = arguments["attribute"]
+    has_attribute = !attribute.none?
+
+    seen = Set(String).new
+    result = [] of Value
+
+    target.each do |item|
+      key_value = has_attribute ? Resolver.resolve_dig(attribute, item) : item
+      key = key_value.to_s
+      key = key.downcase unless case_sensitive
+
+      unless seen.includes?(key)
+        seen << key
+        result << item
+      end
+    end
+
+    result
   end
 end

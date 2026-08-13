@@ -3,7 +3,9 @@ module Crinja::Filter
     separator = arguments["separator"].to_string
     attribute = arguments["attribute"]
 
-    if target.sequence?
+    if target.undefined?
+      ""
+    elsif target.sequence?
       # TODO: Compiler fails with nil assertion if `when Enumerable`
       # it already fails for `value.join("") do |string| string end`
       do_attribute = attribute.truthy?

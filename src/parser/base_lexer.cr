@@ -109,7 +109,13 @@ module Crinja::Parser
           when Symbol::STRING_ESCAPE
             @buffer << Symbol::STRING_ESCAPE
           else
-            # ignore unknown escape
+            # Real Python/Jinja2 string literals pass an unrecognized
+            # escape straight through as literal text (`'\1'` is the two
+            # characters `\` and `1` - not a real Python string escape,
+            # no error) - needed for real Ansible regex backreference
+            # syntax (`regex_search(pattern, '\1')`).
+            @buffer << Symbol::STRING_ESCAPE
+            @buffer << char
           end
         else
           escaped = false

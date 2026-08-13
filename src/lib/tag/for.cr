@@ -53,7 +53,7 @@ class Crinja::Tag::For < Crinja::Tag
 
       expect Kind::IDENTIFIER, "in"
 
-      collection_expr = parse_expression
+      collection_expr = parse_expression_no_condexpr
 
       if_expr : AST::ExpressionNode? = nil
       if_token Kind::IDENTIFIER, "if" do

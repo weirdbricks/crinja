@@ -72,10 +72,29 @@ class Crinja::Renderer
     end
   end
 
+  # Real Jinja2's `trim_blocks` config only removes a SINGLE newline
+  # character immediately following a block tag - it does nothing at all
+  # when there's no newline there to remove.
+  # `Util::StringTrimmer.trim`'s own "no newline found in this text
+  # segment" branch does `first_line.lstrip`, unconditionally stripping
+  # EVERY leading whitespace character - correct for an explicit
+  # `{%- ... %}` minus-trim (which really does mean "strip all adjacent
+  # whitespace"), but routing both the explicit `-` case AND the
+  # implicit trim_blocks-config case through the same "left" flag means
+  # trim_blocks alone - with no explicit `-` anywhere - also triggers
+  # that aggressive whole-segment lstrip whenever the text right after a
+  # block tag has no newline in it (`{% endif %} {{ x }}`, a single
+  # literal space with no newline), silently eating a real, meaningful
+  # space. Guarded to only apply the implicit trim_blocks trigger when
+  # the text segment actually starts with a newline - an explicit
+  # `node.trim_left` (real `-` syntax) is untouched and still always
+  # fully strips, which is correct.
   def self.trim_text(node, trim_blocks = false, lstrip_blocks = false)
+    implicit_trim_blocks = trim_blocks && node.left_is_block && node.string.starts_with?('\n')
+
     Crinja::Util::StringTrimmer.trim(
       node.string,
-      node.trim_left || (trim_blocks && node.left_is_block),
+      node.trim_left || implicit_trim_blocks,
       node.trim_right || (lstrip_blocks && node.right_is_block),
       node.left_is_block,
       node.right_is_block && lstrip_blocks

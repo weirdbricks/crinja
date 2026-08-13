@@ -85,3 +85,10 @@ Crinja.test({seq: Array(Crinja::Value).new}, :in) {
     end
   end
 }
+
+# `ne` - real Jinja2 core test (not equal), the missing sibling of
+# `equalto`/`eq`.
+Crinja.test({other: Crinja::UNDEFINED}, :ne) { target != arguments["other"] }
+
+# `truthy` - real Jinja2 2.11+ core test (Python `bool(value)`).
+Crinja.test(:truthy) { target.truthy? }

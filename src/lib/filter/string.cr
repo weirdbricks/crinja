@@ -77,26 +77,37 @@ module Crinja::Filter
     target.to_s.split(/[#{Crinja::Util::REGEX_WORD.source}]+/).size
   end
 
+  # Real Jinja2 string filters coerce their target through Python's
+  # `soft_str()` internally, which stringifies a (non-strict) Undefined
+  # to `''` rather than raising.
   Crinja.filter({old: UNDEFINED, new: UNDEFINED, count: nil}, :replace) do
-    search = arguments["old"].to_s
-    replace = arguments["new"]
-    count = arguments["count"]
-
-    if count.raw.nil?
-      target.as_s_or_safe.gsub(search, replace)
+    if target.undefined?
+      ""
     else
-      string = target.to_s
-      count.to_i.times do
-        running = false
-        string = string.sub(search) { running = true; replace }
-        break unless running
+      search = arguments["old"].to_s
+      replace = arguments["new"]
+      count = arguments["count"]
+
+      if count.raw.nil?
+        target.as_s_or_safe.gsub(search, replace)
+      else
+        string = target.to_s
+        count.to_i.times do
+          running = false
+          string = string.sub(search) { running = true; replace }
+          break unless running
+        end
+        string
       end
-      string
     end
   end
 
   Crinja.filter(:trim) do
-    target.as_s_or_safe.strip
+    if target.undefined?
+      ""
+    else
+      target.as_s_or_safe.strip
+    end
   end
 
   Crinja.filter({width: 79, break_long_words: true, wrapstring: nil}, :wordwrap) do

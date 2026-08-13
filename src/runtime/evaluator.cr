@@ -188,8 +188,50 @@ class Crinja::Evaluator
     value
   end
 
+  visit CondExpr do
+    if Value.new(evaluate(expression.condition)).truthy?
+      evaluate(expression.true_value)
+    elsif false_value = expression.false_value
+      evaluate(false_value)
+    else
+      Undefined.new("if-expression")
+    end
+  end
+
+  visit SliceExpression do
+    receiver_value = value(expression.receiver)
+
+    start = if node = expression.slice_start
+              value(node).to_i
+            end
+    stop = if node = expression.slice_stop
+             value(node).to_i
+           end
+    step = if node = expression.slice_step
+             value(node).to_i
+           else
+             1
+           end
+
+    case raw = receiver_value.raw
+    when Array(Value)
+      PythonSlice.slice(raw, start, stop, step)
+    when String
+      PythonSlice.slice(raw.chars, start, stop, step).join
+    when SafeString
+      PythonSlice.slice(raw.to_s.chars, start, stop, step).join
+    else
+      raise TypeError.new(receiver_value, "'#{raw.class}' object is not sliceable")
+    end
+  end
+
+  # Generic fallback for any AST node type without its own overload below
+  # (a `CallExpression`, a literal used directly as a receiver, ...) -
+  # degrades to the node's own `to_s` rather than raising, so a
+  # not-yet-specifically-formatted receiver produces a less precise but
+  # still useful error message instead of crashing the whole evaluation.
   private def name_for_expression(expression)
-    raise "not implemented for #{expression.class}"
+    expression.to_s
   end
 
   private def name_for_expression(expression : AST::IdentifierLiteral)

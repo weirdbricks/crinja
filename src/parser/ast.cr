@@ -107,6 +107,20 @@ module Crinja::AST
     identifier : ExpressionNode,
     argument : ExpressionNode
 
+  # Python slice syntax - `expr[start:stop]`, `expr[start:stop:step]`,
+  # any component optional (`expr[:22]`, `expr[2:]`, `expr[::-1]`).
+  expression_node SliceExpression,
+    receiver : ExpressionNode,
+    slice_start : ExpressionNode?,
+    slice_stop : ExpressionNode?,
+    slice_step : ExpressionNode?
+
+  # Inline ternary - `<true_value> if <condition> else <false_value>`.
+  expression_node CondExpr,
+    condition : ExpressionNode,
+    true_value : ExpressionNode,
+    false_value : ExpressionNode?
+
   expression_node ExpressionList,
     children : Array(ExpressionNode)
 

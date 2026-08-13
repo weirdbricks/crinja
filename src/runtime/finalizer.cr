@@ -33,6 +33,14 @@ struct Crinja::Finalizer
     @io << "none"
   end
 
+  # Real Jinja2 (via Python's `str()`) renders a bare boolean as
+  # "True"/"False" (capitalized) - without this overload, a `Bool` falls
+  # through to the generic `raw.to_s(@io)` case above, which is
+  # Crystal's own lowercase `Bool#to_s`.
+  protected def stringify(raw : Bool)
+    @io << (raw ? "True" : "False")
+  end
+
   # Convert a `SafeString` to string.
   protected def stringify(safe : SafeString)
     quote { safe.to_s(@io) }
