@@ -27,6 +27,9 @@ describe Crinja::Operator do
     it "concatenates two arrays" do
       evaluate_expression("['a'] + ['b']").should eq(%(['a', 'b']))
     end
+    it "stringifies a non-numeric, non-array operand through Finalizer (Python parity)" do
+      evaluate_expression(%(true + "x")).should eq("Truex")
+    end
   end
 
   describe "-" do
@@ -274,6 +277,12 @@ describe Crinja::Operator do
     end
     describe "~" do
       it { evaluate_expression(%("b" ~ "a")).should eq "ba" }
+      it "stringifies a Bool operand through Finalizer (Python parity, not Crystal's lowercase to_s)" do
+        evaluate_expression(%("flag=" ~ true)).should eq "flag=True"
+      end
+      it "stringifies an Array operand through Finalizer, not a raw Value inspect" do
+        evaluate_expression(%("list=" ~ [1, 2])).should eq "list=[1, 2]"
+      end
     end
   end
 end

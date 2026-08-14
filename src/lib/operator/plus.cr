@@ -15,7 +15,10 @@ class Crinja::Operator
           op1.as_a << Value.new adding
         end
       else
-        op1.to_s + op2.to_s
+        # Same `Finalizer.stringify` fix as `~` (`src/lib/operator/
+        # tilde.cr`) - `Value#to_s` bypasses `Finalizer`, mis-rendering
+        # Bool/Array/Hash operands.
+        Finalizer.stringify(op1.raw) + Finalizer.stringify(op2.raw)
       end
     end
 
