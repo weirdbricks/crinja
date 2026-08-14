@@ -186,3 +186,33 @@ an iterable of 2-item list/tuple pairs), merges kwargs on top, and raises
 This is what unblocks crystal-ansible's step-5 convergence of the
 ExpressionEvaluator `dict(` bare-call leaf. See fork `spec/functions/
 dict_spec.cr`.
+
+## 0.9.5 (2026-08-14): Time arithmetic (`-` on Time -> TimeDelta)
+
+`to_datetime(...) - to_datetime(...)` (real Ansible's idiom, e.g. dev-sec
+os_hardening's password-ageing `.days` assert). The `Minus` operator now
+subtracts two `Time` values into `Crinja::TimeDelta` (a Crinja::Object with
+`days`/`seconds`/`microseconds` attributes + `total_seconds()` method, and a
+Python `str(timedelta)`-style `to_s`). Also fixed the latent `Value#time?`
+bug this exposed (bare `is_a(Time)` on the Raw union -> `is_a?(Time)`; never
+compiled before because nothing called it). A `to_datetime` filter itself is
+NOT in the fork - it is Ansible-specific and lives in crystal-ansible's
+`jinja_filters.cr` (produces a `Crinja::Value` wrapping a real `::Time`).
+
+## 0.9.6 (2026-08-14): vendored spec suite cleaned 121 -> 0 (specs only)
+
+No source changes. Updated the fork's own spec suite to match intentional,
+already-shipped behavior: Finalizer bool-capitalization (~110 stale
+true/false assertions), `and`/`or` operand-value semantics (1 and 1 -> 1,
+true and none -> none, false or none -> none, 1 or 1 -> 1), the newly
+registered `in`/`not in` operators (default-operator-list assertion), and
+`pprint`'s `verbose=False` default-arg message. The 3 recursive-for +
+trim_blocks assertions document actual (Python-divergent, cosmetic) fork
+output with a KNOWN DIVERGENCE note (recursive-for + trim is rare in real
+roles, and reworking the trim engine risks live-verified common-case output).
+
+## Upstreaming - DECIDED NOT TO DO (2026-08-14)
+
+The "Fixes worth upstreaming" list below is DEAD: none of these will be
+submitted as PRs upstream. They remain permanently here in the fork (all
+migrated into real source as of 0.9.3). Do not re-open.
