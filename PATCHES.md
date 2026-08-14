@@ -175,3 +175,14 @@ preference" they are: `Value#truthy?`, `and`/`or` operand semantics,
 `in`/`not in` entirely missing, inline ternary, `.split()`/`.join()`
 Python string methods, `first`/`list`/`join`/`trim`/`replace` Undefined
 leniency, `max`/`min`/`ne`/`truthy`.
+
+## 0.9.4 (2026-08-14): dict() single positional-iterable form
+
+`dict([['a',1],['b',2]])` (real Ansible's exposed-Python-`dict` form) used
+to silently succeed with an EMPTY dict because `src/lib/function/dict.cr`
+read only kwargs. Now handles the single positional argument (a mapping, or
+an iterable of 2-item list/tuple pairs), merges kwargs on top, and raises
+`Arguments::Error` for a non-mapping/non-iterable arg or >1 positional arg.
+This is what unblocks crystal-ansible's step-5 convergence of the
+ExpressionEvaluator `dict(` bare-call leaf. See fork `spec/functions/
+dict_spec.cr`.
