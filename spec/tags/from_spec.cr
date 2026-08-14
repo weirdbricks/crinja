@@ -26,7 +26,7 @@ describe Crinja::Tag::From do
   end
   describe "other macros" do
     it "are undefined" do
-      render("{% from 'foobarmacros.html' import foomacro %}{{ barmacro is callable }}", loader: test_loader_from).should eq "false"
+      render("{% from 'foobarmacros.html' import foomacro %}{{ barmacro is callable }}", loader: test_loader_from).should eq "False"
     end
     it "cannot be called" do
       expect_raises(Crinja::TypeError) do

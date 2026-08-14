@@ -21,6 +21,6 @@ describe Crinja::Tag::Import do
     render("{% import 'macros.html' as macros %}{{ macros.testmacro() }}", loader: test_loader_import).should eq "foo"
   end
   it "imports aliased macro only in namespace" do
-    render("{% import 'macros.html' as macros %}{{ testmacro is not callable }}", loader: test_loader_import).should eq "true"
+    render("{% import 'macros.html' as macros %}{{ testmacro is not callable }}", loader: test_loader_import).should eq "True"
   end
 end

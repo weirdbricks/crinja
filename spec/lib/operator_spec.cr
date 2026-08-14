@@ -5,7 +5,7 @@ describe Crinja::Operator do
     it "has default operators registered" do
       library = Crinja::Operator::Library.new
 
-      library.keys.should eq ["+", "-", "/", "//", "%", "*", "**", "~", "==", "!=", ">", ">=", "<", "<=", "and", "or", "not"]
+      library.keys.should eq ["+", "-", "/", "//", "%", "*", "**", "~", "==", "!=", ">", ">=", "<", "<=", "and", "or", "not", "in", "not in"]
     end
 
     it "should have + operator" do
@@ -135,13 +135,13 @@ describe Crinja::Operator do
 
   describe "and" do
     it "works" do
-      evaluate_expression("true and true").should eq("true")
+      evaluate_expression("true and true").should eq("True")
     end
     it "works" do
-      evaluate_expression("1 and 1").should eq("true")
+      evaluate_expression("1 and 1").should eq("1")
     end
     it "works" do
-      evaluate_expression("true and none").should eq("false")
+      evaluate_expression("true and none").should eq("none")
     end
     it "evaluates right branch if first is true" do
       env = Crinja.new
@@ -161,10 +161,10 @@ describe Crinja::Operator do
 
   describe "or" do
     it "works" do
-      evaluate_expression("true or true").should eq("true")
-      evaluate_expression("false or none").should eq("false")
-      evaluate_expression("1 or 1").should eq("true")
-      evaluate_expression("true or none").should eq("true")
+      evaluate_expression("true or true").should eq("True")
+      evaluate_expression("false or none").should eq("none")
+      evaluate_expression("1 or 1").should eq("1")
+      evaluate_expression("true or none").should eq("True")
     end
     it "evaluates right branch if first is false" do
       env = Crinja.new
@@ -183,97 +183,97 @@ describe Crinja::Operator do
   end
 
   describe "precedence" do
-    it { evaluate_expression(%(true or false and false)).should eq "true" }
-    it { evaluate_expression(%((true or false) and false)).should eq "false" }
+    it { evaluate_expression(%(true or false and false)).should eq "True" }
+    it { evaluate_expression(%((true or false) and false)).should eq "False" }
     it { evaluate_expression(%(2 + 4 * 2)).should eq "10" }
     it { evaluate_expression(%((2 + 4) * 2)).should eq "12" }
   end
 
   describe "==" do
-    it { evaluate_expression(%([1, 2] == [1, 2, 3])).should eq "false" }
-    it { evaluate_expression(%([1, 3] == [1, 3])).should eq "true" }
-    it { evaluate_expression(%([1, 2] == 2)).should eq "false" }
-    it { evaluate_expression(%(true == 2)).should eq "false" }
-    it { evaluate_expression(%(1 == false)).should eq "false" }
-    it { evaluate_expression(%({ foo: bar } == 2)).should eq "false" }
-    it { evaluate_expression(%(1 == 2)).should eq "false" }
-    it { evaluate_expression(%(2 == 2)).should eq "true" }
-    it { evaluate_expression(%("a" == "b")).should eq "false" }
-    it { evaluate_expression(%("b" == "b")).should eq "true" }
+    it { evaluate_expression(%([1, 2] == [1, 2, 3])).should eq "False" }
+    it { evaluate_expression(%([1, 3] == [1, 3])).should eq "True" }
+    it { evaluate_expression(%([1, 2] == 2)).should eq "False" }
+    it { evaluate_expression(%(true == 2)).should eq "False" }
+    it { evaluate_expression(%(1 == false)).should eq "False" }
+    it { evaluate_expression(%({ foo: bar } == 2)).should eq "False" }
+    it { evaluate_expression(%(1 == 2)).should eq "False" }
+    it { evaluate_expression(%(2 == 2)).should eq "True" }
+    it { evaluate_expression(%("a" == "b")).should eq "False" }
+    it { evaluate_expression(%("b" == "b")).should eq "True" }
   end
   describe "!=" do
-    it { evaluate_expression(%([1, 2] != [1, 2, 3])).should eq "true" }
-    it { evaluate_expression(%([1, 3] != [1, 3])).should eq "false" }
-    it { evaluate_expression(%([1, 2] != 2)).should eq "true" }
-    it { evaluate_expression(%(true != 2)).should eq "true" }
-    it { evaluate_expression(%(1 != true)).should eq "true" }
-    it { evaluate_expression(%({ foo: bar } != 2)).should eq "true" }
-    it { evaluate_expression(%(1 != 2)).should eq "true" }
-    it { evaluate_expression(%(2 != 2)).should eq "false" }
-    it { evaluate_expression(%("a" != "b")).should eq "true" }
-    it { evaluate_expression(%("b" != "b")).should eq "false" }
+    it { evaluate_expression(%([1, 2] != [1, 2, 3])).should eq "True" }
+    it { evaluate_expression(%([1, 3] != [1, 3])).should eq "False" }
+    it { evaluate_expression(%([1, 2] != 2)).should eq "True" }
+    it { evaluate_expression(%(true != 2)).should eq "True" }
+    it { evaluate_expression(%(1 != true)).should eq "True" }
+    it { evaluate_expression(%({ foo: bar } != 2)).should eq "True" }
+    it { evaluate_expression(%(1 != 2)).should eq "True" }
+    it { evaluate_expression(%(2 != 2)).should eq "False" }
+    it { evaluate_expression(%("a" != "b")).should eq "True" }
+    it { evaluate_expression(%("b" != "b")).should eq "False" }
   end
 
   describe "comparators" do
     describe ">" do
-      it { evaluate_expression(%([1, 2] > [1, 2])).should eq "false" }
-      it { evaluate_expression(%([1, 2] > [1, 2, 3])).should eq "false" }
-      it { evaluate_expression(%([1, 3] > [1, 2, 3])).should eq "true" }
+      it { evaluate_expression(%([1, 2] > [1, 2])).should eq "False" }
+      it { evaluate_expression(%([1, 2] > [1, 2, 3])).should eq "False" }
+      it { evaluate_expression(%([1, 3] > [1, 2, 3])).should eq "True" }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%([1, 2] > 2)) } }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%(true > 2)) } }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%(1 > false)) } }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%({ foo: bar } > 2)) } }
-      it { evaluate_expression(%(1 > 1)).should eq "false" }
-      it { evaluate_expression(%(1 > 2)).should eq "false" }
-      it { evaluate_expression(%(2 > 1)).should eq "true" }
-      it { evaluate_expression(%("a" > "a")).should eq "false" }
-      it { evaluate_expression(%("a" > "b")).should eq "false" }
-      it { evaluate_expression(%("b" > "a")).should eq "true" }
+      it { evaluate_expression(%(1 > 1)).should eq "False" }
+      it { evaluate_expression(%(1 > 2)).should eq "False" }
+      it { evaluate_expression(%(2 > 1)).should eq "True" }
+      it { evaluate_expression(%("a" > "a")).should eq "False" }
+      it { evaluate_expression(%("a" > "b")).should eq "False" }
+      it { evaluate_expression(%("b" > "a")).should eq "True" }
     end
     describe ">=" do
-      it { evaluate_expression(%([1, 2] >= [1, 2])).should eq "true" }
-      it { evaluate_expression(%([1, 2] >= [1, 2, 3])).should eq "false" }
-      it { evaluate_expression(%([1, 3] >= [1, 2, 3])).should eq "true" }
+      it { evaluate_expression(%([1, 2] >= [1, 2])).should eq "True" }
+      it { evaluate_expression(%([1, 2] >= [1, 2, 3])).should eq "False" }
+      it { evaluate_expression(%([1, 3] >= [1, 2, 3])).should eq "True" }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%([1, 2] >= 2)) } }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%(true >= 2)) } }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%(1 >= false)) } }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%({ foo: bar } >= 2)) } }
-      it { evaluate_expression(%(1 >= 1)).should eq "true" }
-      it { evaluate_expression(%(1 >= 2)).should eq "false" }
-      it { evaluate_expression(%(2 >= 1)).should eq "true" }
-      it { evaluate_expression(%("a" >= "a")).should eq "true" }
-      it { evaluate_expression(%("a" >= "b")).should eq "false" }
-      it { evaluate_expression(%("b" >= "a")).should eq "true" }
+      it { evaluate_expression(%(1 >= 1)).should eq "True" }
+      it { evaluate_expression(%(1 >= 2)).should eq "False" }
+      it { evaluate_expression(%(2 >= 1)).should eq "True" }
+      it { evaluate_expression(%("a" >= "a")).should eq "True" }
+      it { evaluate_expression(%("a" >= "b")).should eq "False" }
+      it { evaluate_expression(%("b" >= "a")).should eq "True" }
     end
     describe "<=" do
-      it { evaluate_expression(%([1, 2] <= [1, 2])).should eq "true" }
-      it { evaluate_expression(%([1, 2] <= [1, 2, 3])).should eq "true" }
-      it { evaluate_expression(%([1, 3] <= [1, 2, 3])).should eq "false" }
+      it { evaluate_expression(%([1, 2] <= [1, 2])).should eq "True" }
+      it { evaluate_expression(%([1, 2] <= [1, 2, 3])).should eq "True" }
+      it { evaluate_expression(%([1, 3] <= [1, 2, 3])).should eq "False" }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%([1, 2] <= 2)) } }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%(true <= 2)) } }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%(1 <= false)) } }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%({ foo: bar } <= 2)) } }
-      it { evaluate_expression(%(1 <= 1)).should eq "true" }
-      it { evaluate_expression(%(1 <= 2)).should eq "true" }
-      it { evaluate_expression(%(2 <= 1)).should eq "false" }
-      it { evaluate_expression(%("a" <= "a")).should eq "true" }
-      it { evaluate_expression(%("a" <= "b")).should eq "true" }
-      it { evaluate_expression(%("b" <= "a")).should eq "false" }
+      it { evaluate_expression(%(1 <= 1)).should eq "True" }
+      it { evaluate_expression(%(1 <= 2)).should eq "True" }
+      it { evaluate_expression(%(2 <= 1)).should eq "False" }
+      it { evaluate_expression(%("a" <= "a")).should eq "True" }
+      it { evaluate_expression(%("a" <= "b")).should eq "True" }
+      it { evaluate_expression(%("b" <= "a")).should eq "False" }
     end
     describe "<" do
-      it { evaluate_expression(%([1, 2] < [1, 2])).should eq "false" }
-      it { evaluate_expression(%([1, 2] < [1, 2, 3])).should eq "true" }
-      it { evaluate_expression(%([1, 3] < [1, 2, 3])).should eq "false" }
+      it { evaluate_expression(%([1, 2] < [1, 2])).should eq "False" }
+      it { evaluate_expression(%([1, 2] < [1, 2, 3])).should eq "True" }
+      it { evaluate_expression(%([1, 3] < [1, 2, 3])).should eq "False" }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%([1, 2] < 2)) } }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%(true < 2)) } }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%(1 < false)) } }
       it { expect_raises(Crinja::TypeError) { evaluate_expression(%({ foo: bar } < 2)) } }
-      it { evaluate_expression(%(1 < 1)).should eq "false" }
-      it { evaluate_expression(%(1 < 2)).should eq "true" }
-      it { evaluate_expression(%(2 < 1)).should eq "false" }
-      it { evaluate_expression(%("a" < "a")).should eq "false" }
-      it { evaluate_expression(%("a" < "b")).should eq "true" }
-      it { evaluate_expression(%("b" < "a")).should eq "false" }
+      it { evaluate_expression(%(1 < 1)).should eq "False" }
+      it { evaluate_expression(%(1 < 2)).should eq "True" }
+      it { evaluate_expression(%(2 < 1)).should eq "False" }
+      it { evaluate_expression(%("a" < "a")).should eq "False" }
+      it { evaluate_expression(%("a" < "b")).should eq "True" }
+      it { evaluate_expression(%("b" < "a")).should eq "False" }
     end
     describe "~" do
       it { evaluate_expression(%("b" ~ "a")).should eq "ba" }

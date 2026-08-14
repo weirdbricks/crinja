@@ -31,7 +31,7 @@ describe Crinja::Config do
       end
     end
     it "disables filter" do
-      expect_raises(Crinja::SecurityError, "access to filter `pprint(verbose=false)` is disabled.") do
+      expect_raises(Crinja::SecurityError, "access to filter `pprint(verbose=False)` is disabled.") do
         restricted_env.from_string(%({{ "foo" | pprint }})).render
       end
     end
