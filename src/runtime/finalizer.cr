@@ -73,7 +73,7 @@ struct Crinja::Finalizer
     hash.each do |key, value|
       @io << ", " if found_one
       stringify(key)
-      @io << " => "
+      @io << ": "
       stringify(value)
       found_one = true
     end

@@ -120,6 +120,19 @@ monkey-patches:
   collections.cr`.
 - **`ne`/`truthy` tests** (real Jinja2 core tests, missing) -
   `src/lib/test/tests.cr`.
+- **Hash finalization used Crystal's own `Hash#to_s` separator** (`{'a'
+  => 1}`) **instead of real Python/Jinja2 dict repr** (`{'a': 1}`) -
+  `src/runtime/finalizer.cr`. Found auditing crystal-ansible's CRINJA.md
+  step-5 `#evaluate_expr` swap (the fourth-construct sub-piece work,
+  checking whether `range()`/`dict()`/container-valued bare-call results
+  are safe to converge) - already reachable through PREVIOUSLY converged
+  constructs (any of `or`/`and`/`is`, the ternary, or comparisons whose
+  chosen/selected value happens to be a dict), so this was a live,
+  already-shipped divergence, not a hypothetical one. Two of this fork's
+  own pre-existing vendor-spec failures (`spec/functions/dict_spec.cr`,
+  `spec/expression/dict_spec.cr`) had been pinning the WRONG `=>` output
+  and are now updated to the correct `:` form; net effect on the fork's
+  own spec suite is 2 fewer failures, not more.
 
 ## Deliberately NOT migrated - Ansible-specific, stays in crystal-ansible
 
