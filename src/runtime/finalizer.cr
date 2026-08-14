@@ -80,6 +80,12 @@ struct Crinja::Finalizer
     @io << "}"
   end
 
+  # Convert a `Crinja::TimeDelta` to string via its own `to_s`
+  # (Python's `str(timedelta)`-style repr).
+  protected def stringify(delta : Crinja::TimeDelta)
+    delta.to_s(@io)
+  end
+
   # Convert an `Crinja::Tuple` to string.
   protected def stringify(array : Crinja::Tuple)
     @inside_struct = true

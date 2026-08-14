@@ -587,7 +587,7 @@ struct Crinja::Value
 
   # Returns `true` if the value is a time object.
   def time?
-    @raw.is_a(Time)
+    @raw.is_a?(Time)
   end
 
   # Returns `true` if the value is nil.
