@@ -211,6 +211,33 @@ trim_blocks assertions document actual (Python-divergent, cosmetic) fork
 output with a KNOWN DIVERGENCE note (recursive-for + trim is rare in real
 roles, and reworking the trim engine risks live-verified common-case output).
 
+## 0.9.7 (2026-08-15): multi-arg parenthesized TEST calls never split their arguments
+
+`is name(arg1, arg2)` never consumed the opening `(` at all -
+`expression_parser.cr`'s filter/test-suffix loop only ever set
+`with_parenthesis: true` for a FILTER (`!is_test &&
+current_token.kind == Kind::LEFT_PAREN`), never for a TEST. The whole
+`(arg1, arg2)` then got reparsed from scratch as a single parenthesized
+tuple-literal EXPRESSION (`parse_literal`'s own `Kind::LEFT_PAREN`
+branch), landing as ONE positional argument holding both values
+bundled together instead of two separate ones - a test declared with 2
+keyword args (`Crinja.test({compare_to: "", operator: "=="}, :version)`)
+received the whole tuple packed into the first arg and never saw the
+second at all, silently defaulting it instead of raising. Every
+built-in test in this fork's own `tests.cr` only ever takes 0 or 1
+argument, so this was never exercised until crystal-ansible's own
+`version`/`version_compare` tests (2 args: compare-to + operator) hit
+it live benchmarking `prometheus.prometheus.prometheus`'s own `is
+version('2.7.0', '>=')` idiom - `>=`/`>`/`<`/etc all silently behaved
+as the default `==` instead.
+
+Fix: removed the `!is_test &&` guard so a TEST's parenthesized call
+consumes the `(` and parses its argument list exactly like a FILTER's
+does. New spec (`spec/lib/tests_spec.cr`, "multi-arg parenthesized
+test call") registers an ad-hoc 2-kwarg test and confirms both
+positional arguments bind separately. Full spec suite: 540 examples
+(was 539), 0 failures.
+
 ## Upstreaming - DECIDED NOT TO DO (2026-08-14)
 
 The "Fixes worth upstreaming" list below is DEAD: none of these will be

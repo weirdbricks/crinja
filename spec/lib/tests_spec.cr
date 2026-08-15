@@ -119,6 +119,27 @@ describe Crinja::Test do
     end
   end
 
+  describe "multi-arg parenthesized test call" do
+    # `is name(arg1, arg2)` never consumed the opening `(` at all (the
+    # `!is_test &&` guard in expression_parser.cr's filter/test-suffix
+    # loop only ever set with_parenthesis: true for a FILTER, never a
+    # TEST) - the whole `(arg1, arg2)` was then reparsed from scratch as
+    # a single parenthesized tuple-literal EXPRESSION (parse_literal's
+    # own `Kind::LEFT_PAREN` branch), landing as ONE positional argument
+    # instead of two. A test declared with 2 keyword args (like a real
+    # crystal-ansible caller's `version(compare_to, operator)`) received
+    # the whole tuple packed into the FIRST arg and never saw the
+    # second at all - silently defaulting it instead of raising, so this
+    # was invisible unless you specifically checked the second arg's
+    # value. Found downstream in crystal-ansible benchmarking
+    # prometheus.prometheus.prometheus's own `is version('2.7.0', '>=')`
+    # idiom.
+    it "binds both parenthesized positional arguments separately, not as one tuple" do
+      Crinja.test({a: 0, b: 0}, :two_arg_probe) { arguments["a"].to_i == 3 && arguments["b"].to_i == 4 }
+      evaluate_expression(%(0 is two_arg_probe(3, 4))).should eq("True")
+    end
+  end
+
   it "test_custom_test" do
     items = [] of ::Tuple(String, String)
     matching = Crinja.test({x: nil}) { items << {target.as_s, arguments["x"].as_s}; false }

@@ -231,7 +231,7 @@ class Crinja::Parser::ExpressionParser
         identifier.location_end = next_token.location
 
         with_parenthesis = false
-        if !is_test && current_token.kind == Kind::LEFT_PAREN
+        if current_token.kind == Kind::LEFT_PAREN
           next_token
           with_parenthesis = true
         elsif config.liquid_compatibility_mode && current_token.kind == Kind::DICT_ASSIGN
