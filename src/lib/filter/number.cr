@@ -17,18 +17,34 @@ module Crinja::Filter
   end
 
   Crinja.filter({default: 0, base: 10}, :int) do
+    # `String#to_i?`/`Int#to_i` (no explicit bit-width type argument)
+    # narrow to Int32 - real Jinja2/Python's `int()` has no such limit
+    # (arbitrary precision), so any real-world byte/inode/timestamp-scale
+    # value (`ansible_facts['mounts'][n].size_available`, gigabyte/
+    # terabyte-scale byte counts) silently returned the filter's own
+    # `default` (0) instead of the real number the moment it exceeded
+    # Int32::MAX (~2.1 billion) - not an error, just a wrong value,
+    # discovered via crystal-ansible's own benchmarking of
+    # robertdebock.diskspace (`item.size_available | int >=
+    # kilobytes_available | int` always evaluated as `0 >= N`, so the
+    # role's whole disk-space check silently never passed regardless of
+    # real available space). Switched to `to_i64?`/`to_i64` throughout -
+    # still bounded (Int64::MAX is ~9.2 quintillion, more than enough
+    # headroom for any real value while staying a native, non-BigInt
+    # type) but the actual bug class this filter exists to guard against
+    # doesn't recur at any realistic scale.
     raw = target.raw
     raw = raw.to_s if raw.is_a?(SafeString)
     if raw.is_a?(String)
       if raw['.']?
-        result = raw.to_f?.try &.to_i
+        result = raw.to_f?.try &.to_i64
       else
-        result = raw.to_i?(arguments["base"].to_i, prefix: true)
+        result = raw.to_i64?(arguments["base"].to_i, prefix: true)
       end
-    elsif raw.responds_to?(:to_i?)
-      result = raw.to_i?
-    elsif raw.responds_to?(:to_i)
-      result = raw.to_i
+    elsif raw.responds_to?(:to_i64?)
+      result = raw.to_i64?
+    elsif raw.responds_to?(:to_i64)
+      result = raw.to_i64
     end
 
     if result
