@@ -140,10 +140,26 @@ module Crinja::Filter
 
         line.split.each do |word|
           while break_long_words && word.size > width
-            if current.bytesize > 0
-              remaining = width - current.bytesize
-              current << word[0, remaining] if remaining > 0
-              word = word[remaining..-1] if remaining > 0
+            if current.bytesize > 0 && current.bytesize < width
+              # A word continuation onto a non-empty line needs its own
+              # separating space counted against the remaining width
+              # (real textwrap: "A" + "regular"[...width] wrapped at 5
+              # gives "A reg", not "Aregu" - the space between the
+              # already-accumulated "A" and the word piece IS part of
+              # the width budget). If only the separator itself fits
+              # (remaining == 0), the line still ends with a trailing
+              # space and none of the word - real textwrap does this
+              # too ("with" + "integers."[...5] wrapped at 5 gives
+              # "with ", not "with").
+              remaining = width - current.bytesize - 1
+              current << ' '
+              if remaining > 0
+                current << word[0, remaining]
+                word = word[remaining..-1]
+              end
+              wrapped_lines << current.to_s
+              current = String::Builder.new
+            elsif current.bytesize > 0
               wrapped_lines << current.to_s
               current = String::Builder.new
             else

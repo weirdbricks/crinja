@@ -649,6 +649,14 @@ describe Crinja::Filter do
       evaluate_expression(%(s|wordwrap(10)), {s: "foo " * 3}).split('\n').should eq ["foo foo", "foo"]
       evaluate_expression(%(s|wordwrap), {s: "foo " * 20}).split('\n').should eq [Array.new(20, "foo").join(" ")]
       evaluate_expression(%(s|wordwrap(10, false)), {s: "foo " * 3}).split('\n').should eq ["foo foo", "foo"]
+      # A long word continuing onto an already-non-empty line needs its
+      # own separating space counted against the remaining width - "A"
+      # + "regular"[...width] wrapped at 5 is "A reg", not "Aregu".
+      evaluate_expression(%(s|wordwrap(5)), {s: "A regular line."}).split('\n').should eq ["A reg", "ular", "line."]
+      # When only the separator itself fits (no room for any word
+      # characters), the line still ends with a trailing space and none
+      # of the word - real textwrap does this too.
+      evaluate_expression(%(s|wordwrap(5)), {s: "A line with integers. 1, 2 & 3."}).split('\n').should eq ["A", "line", "with ", "integ", "ers.", "1, 2", "& 3."]
     end
   end
 end
