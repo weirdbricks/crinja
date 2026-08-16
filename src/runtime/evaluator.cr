@@ -151,8 +151,34 @@ class Crinja::Evaluator
     @env.execute_call callable, argumentlist, keyword_arguments, target: target
   end
 
+  # Chained access on an already-undefined base (`foo.bar.baz`,
+  # `hostvars[x]['ansible_facts']...`, when `foo`/`hostvars[x]` don't
+  # exist) must NOT raise here - it must keep returning Undefined all the
+  # way up, exactly like real Ansible's own Jinja environment (its
+  # `AnsibleUndefined`/`hostvars` chaining). Real bug found benchmarking
+  # robertdebock.haproxy (round 41): its own template's extremely common
+  # `server.address | default(hostvars[server.name]['ansible_facts']
+  # ['default_ipv4']['address'])` idiom - a `default()` guard whose
+  # fallback branch is only ever evaluated as a Python/Jinja *expression*,
+  # never actually rendered when the primary value (`server.address`) is
+  # already defined. Real ansible-playbook never errors here even though
+  # `hostvars['some-non-inventory-name']` doesn't exist, because Jinja
+  # only raises `UndefinedError` when an Undefined value is actually
+  # forced into a string/bool/etc - never merely by chaining `.attr`/
+  # `[key]` off of one. Before this fix, `object = value! expression.
+  # identifier` unconditionally raised as soon as ANY link in the chain
+  # was undefined, regardless of whether the final result was ever going
+  # to be used - which crashed a role's entire template render (not just
+  # that one dict lookup) any time a `default()` fallback happened to
+  # reference an undefined intermediate value, extremely common with
+  # `hostvars[..]` guards. Terminal rendering of a genuinely-undefined
+  # value still resolves to an empty string via `Undefined#to_s`
+  # (`StrictUndefined#to_s` still raises) - unaffected by this change,
+  # since that check happens at print/finalize time, not here.
   visit MemberExpression do
-    object = value! expression.identifier
+    object = value expression.identifier
+    return object if object.undefined?
+
     member = expression.member.name
 
     begin
@@ -169,7 +195,9 @@ class Crinja::Evaluator
   end
 
   visit IndexExpression do
-    object = value! expression.identifier
+    object = value expression.identifier
+    return object if object.undefined?
+
     argument = evaluate expression.argument
 
     begin

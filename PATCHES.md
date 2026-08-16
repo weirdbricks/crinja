@@ -238,6 +238,71 @@ test call") registers an ad-hoc 2-kwarg test and confirms both
 positional arguments bind separately. Full spec suite: 540 examples
 (was 539), 0 failures.
 
+## 0.9.8 (2026-08-16): chained access on an undefined base no longer raises mid-chain
+
+`Evaluator#visit MemberExpression`/`visit IndexExpression` both started
+with `object = value! expression.identifier` - `value!` raises
+`UndefinedError` immediately if the base object is itself Undefined,
+before ever attempting the actual `.member`/`[index]` lookup. This meant
+`foo.bar.baz` (or any bracket-index chain) hard-crashed the WHOLE
+template render the instant `foo` (or any earlier link) was undefined -
+even when the final result was wrapped in `default(...)` and never
+actually needed.
+
+Real bug found benchmarking `robertdebock.haproxy` (crystal-ansible
+round 41): its own `haproxy.cfg.j2` template has `server.address |
+default(hostvars[server.name]['ansible_facts']['default_ipv4']
+['address'])` - `server.address` is defined (a literal IP in the test
+playbook), so the `default()` fallback expression's own undefined
+`hostvars[...]` chain was never supposed to matter. Crystal-ansible
+crashed the entire `Configure software` task instead of just rendering
+the primary value, while real `ansible-playbook` rendered it fine.
+
+Verified directly against the installed `ansible-core`'s own
+`ansible._internal._templating._jinja_common.Marker` class
+(`Marker.__getattr__`: "Raises AttributeError for dunder-looking
+accesses, self-propagates otherwise" / `__getitem__`: "Self-propagates
+on all item accesses") - real Ansible's Jinja environment is
+DELIBERATELY lenient about chaining through an undefined value (that's
+what makes the `x.y.z | default(fallback)` idiom work when x/y/z don't
+exist), while still failing loudly if an undefined value is ever
+actually *used* as a concrete value (`Marker` extends `StrictUndefined`,
+so dunder methods like `__str__`/`__bool__` still trip). Confirmed with
+plain upstream Jinja2 too: `jinja2.Environment()` (default `Undefined`)
+raises immediately on `foo.bar.baz | default(...)` when `foo` doesn't
+exist, but `jinja2.Environment(undefined=jinja2.ChainableUndefined)`
+renders the fallback cleanly - Ansible's `Marker` is this fork's
+equivalent of `ChainableUndefined`, layered on top of `StrictUndefined`.
+
+Fix: `visit MemberExpression`/`visit IndexExpression` now use the
+non-raising `value` (not `value!`) for the base object, and return that
+same Undefined value directly (short-circuiting the attribute/index
+resolution attempt) instead of raising when it's already undefined.
+This doesn't fully replicate Ansible's Marker/StrictUndefined nuance
+(a genuinely-undefined value that's *never* chained and is directly
+rendered still resolves to an empty string here via the fork's existing
+default `Undefined#to_s`, rather than raising like Ansible's `Marker`
+would) - crystal-ansible's CrinjaRenderer already relied on that
+lenient bare-undefined-render-as-empty behavior before this change (see
+its own template_action_plugin.cr comments on ternary-without-else
+rendering), so this fix makes chained access consistent with that
+already-accepted behavior rather than introducing a new category of
+leniency. Getting the stricter final-render-raises-when-actually-used
+half of Ansible's real semantics would need crystal-ansible to switch
+its configured `Undefined` class to something like `StrictUndefined`
+project-wide - a materially bigger, riskier change with its own blast
+radius across every other undefined-producing code path, deliberately
+left out of scope here.
+
+Updated 5 now-intentionally-outdated specs that asserted the OLD
+raise-immediately behavior (`spec/expression/identifiers_spec.cr` x3,
+`spec/interpreter/error_location_spec.cr` x2) to assert the new
+self-propagating-Undefined behavior instead; error-location tracking
+itself stays covered by `spec/parser/error_spec.cr` and
+`spec/parser/location_spec.cr`, which don't depend on chain-raising.
+Full spec suite: 540 examples, 0 failures (was 5 failures against the
+old expectations before updating them).
+
 ## Upstreaming - DECIDED NOT TO DO (2026-08-14)
 
 The "Fixes worth upstreaming" list below is DEAD: none of these will be
