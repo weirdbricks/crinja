@@ -230,6 +230,24 @@ class Crinja::Parser::ExpressionParser
 
         identifier.location_end = next_token.location
 
+        # Real Ansible allows a filter (or test) to be referenced by its
+        # fully-qualified collection name (`ansible.builtin.ternary`,
+        # `community.general.something`), exactly like a module - it
+        # resolves to the exact same filter registered under the bare
+        # trailing name. Crinja's own grammar only ever expected a single
+        # bare IDENTIFIER after `|`/`is` - any dotted filter name crashed
+        # the whole template render ("Unexpected POINT") instead of
+        # resolving to the same filter a bare `| ternary(...)` call
+        # already works with. Found via robertdebock.vsftpd's own
+        # `vsftpd.conf.j2`, which uses `| ansible.builtin.ternary(...)`
+        # throughout for every yes/no setting.
+        while current_token.kind == Kind::POINT
+          next_token
+          segment = assert_token(Kind::IDENTIFIER) { current_token.value }
+          identifier = AST::IdentifierLiteral.new(segment).at(identifier.location_start)
+          identifier.location_end = next_token.location
+        end
+
         with_parenthesis = false
         if current_token.kind == Kind::LEFT_PAREN
           next_token
