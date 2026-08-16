@@ -110,28 +110,62 @@ module Crinja::Filter
     end
   end
 
+  # Matches Python's own `textwrap.wrap` (what real Ansible's Jinja2
+  # `wordwrap` filter actually calls): greedily PACKS WHOLE WORDS onto
+  # each line up to `width`, only breaking WITHIN a word when that one
+  # word alone exceeds `width` (governed by `break_long_words`). The
+  # previous implementation instead chopped the source line into fixed
+  # `width`-sized character chunks unconditionally, only trying (weakly)
+  # to backtrack to a space *within that already-truncated chunk* -
+  # completely different output shape for anything but single-character
+  # "words". Found benchmarking robertdebock.functions: `"Extra spaces."
+  # | wordwrap(5)` real Ansible gives "Extra\nspace\ns." (whole word
+  # "Extra" fits exactly in one line; "spaces." doesn't fit so it's
+  # split at the width boundary) - this filter previously gave
+  # "\nExtr\na spa\nces. " instead.
   Crinja.filter({width: 79, break_long_words: true, wrapstring: nil}, :wordwrap) do
     width = arguments["width"].to_i
     break_long_words = arguments["break_long_words"].truthy?
     wrapstring = arguments.fetch("wrapstring", "\n").to_s
+    width = 1 if width < 1
 
     String.build do |io|
-      first_line = true
+      first_source_line = true
       target.as_s.each_line do |line|
-        io << wrapstring unless first_line
-        first_line = false
-        while line.size > width
-          newline = line[0, width]
-          if break_long_words
-            io << newline
-          else
-            newline, s, _ = newline.rpartition(/\s/)
-            io << newline << s
+        io << wrapstring unless first_source_line
+        first_source_line = false
+
+        wrapped_lines = [] of String
+        current = String::Builder.new
+
+        line.split.each do |word|
+          while break_long_words && word.size > width
+            if current.bytesize > 0
+              remaining = width - current.bytesize
+              current << word[0, remaining] if remaining > 0
+              word = word[remaining..-1] if remaining > 0
+              wrapped_lines << current.to_s
+              current = String::Builder.new
+            else
+              wrapped_lines << word[0, width]
+              word = word[width..-1]
+            end
           end
-          io << wrapstring
-          line = line[newline.size..-1]
+
+          if current.bytesize == 0
+            current << word
+          elsif current.bytesize + 1 + word.size <= width
+            current << ' ' << word
+          else
+            wrapped_lines << current.to_s
+            current = String::Builder.new
+            current << word
+          end
         end
-        io << line
+        wrapped_lines << current.to_s if current.bytesize > 0
+        wrapped_lines << "" if wrapped_lines.empty?
+
+        io << wrapped_lines.join(wrapstring)
       end
     end
   end

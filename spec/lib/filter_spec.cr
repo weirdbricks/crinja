@@ -638,15 +638,17 @@ describe Crinja::Filter do
   end
 
   describe "wordwrap" do
-    it do
+    it "packs whole words onto each line, matching Python's own textwrap.wrap (what real Jinja2's wordwrap filter actually calls) - not fixed-width character chunking" do
+      # Verified against real Python textwrap.wrap output directly, not
+      # assumed: found via crystal-ansible's own robertdebock.functions
+      # benchmark round - the previous fixed-width-chunk implementation
+      # gave a completely different output shape for anything but
+      # single-character "words".
       evaluate_expression(%(s|wordwrap), {s: "a" * 79}).should eq "a" * 79
       evaluate_expression(%(s|wordwrap), {s: "a" * 80}).split('\n').should eq ["a" * 79, "a"]
-      evaluate_expression(%(s|wordwrap(10)), {s: "foo " * 3}).split('\n').should eq ["foo foo fo", "o "]
-    end
-
-    pending do
-      evaluate_expression(%(s|wordwrap), {s: "foo " * 20}).split('\n').should eq ["foo " * 19, "foo"]
-      evaluate_expression(%(s|wordwrap(10, false)), {s: "foo " * 3}).split('\n').should eq ["foo foo", "foo "]
+      evaluate_expression(%(s|wordwrap(10)), {s: "foo " * 3}).split('\n').should eq ["foo foo", "foo"]
+      evaluate_expression(%(s|wordwrap), {s: "foo " * 20}).split('\n').should eq [Array.new(20, "foo").join(" ")]
+      evaluate_expression(%(s|wordwrap(10, false)), {s: "foo " * 3}).split('\n').should eq ["foo foo", "foo"]
     end
   end
 end
