@@ -33,4 +33,18 @@ describe "time delta" do
   it "leaves plain numeric subtraction untouched" do
     evaluate_expression(%(10 - 4)).should eq("6")
   end
+
+  it "adds a timedelta back onto a time, in either operand order" do
+    evaluate_expression(%((a - b) + b), bindings).should eq(Time.utc(2024, 1, 2).to_s)
+    evaluate_expression(%(b + (a - b)), bindings).should eq(Time.utc(2024, 1, 2).to_s)
+  end
+
+  it "adds two timedeltas together" do
+    evaluate_expression(%(((a - b) + (a - b)).days), bindings).should eq("2")
+  end
+
+  it "multiplies a timedelta by a scalar, in either operand order" do
+    evaluate_expression(%(((a - b) * 3).days), bindings).should eq("3")
+    evaluate_expression(%((3 * (a - b)).days), bindings).should eq("3")
+  end
 end
