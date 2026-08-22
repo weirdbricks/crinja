@@ -216,10 +216,19 @@ struct Crinja::Value
       object
     when String
       object.each_char.map { |char| char.to_s }
-    when StrictUndefined
+    when StrictUndefined, Undefined
+      # Real Jinja2 raises UndefinedError when iterating over ANY
+      # Undefined value, not just the strict variant - `{% for x in
+      # undefined_var %}` (no `is defined`/`default([])` guard) fails
+      # outright in real Ansible/Jinja2, it does not silently iterate
+      # zero times. Only StrictUndefined used to raise here; a plain
+      # (non-strict) Undefined instead iterated as an empty sequence -
+      # found via ahuffman.resolv's own `{% for ns in
+      # resolv_nameservers %}` (round 159): real ansible-playbook fails
+      # the whole template render with `'resolv_nameservers' is
+      # undefined`, while this silently rendered the loop as empty and
+      # succeeded.
       raise TypeError.new(self, "can't iterate over undefined")
-    when Undefined
-      ([] of Nil).each
     else
       raise TypeError.new(self, "#{object.class} is not iterable")
     end
@@ -243,9 +252,10 @@ struct Crinja::Value
       object.each { |value| yield value }
     when String
       object.each_char { |char| yield char.to_s }
-    when StrictUndefined
+    when StrictUndefined, Undefined
+      # See the other #raw_each overload's own comment above - real
+      # Jinja2 raises for ANY Undefined on iteration, not just strict.
       raise TypeError.new(self, "can't iterate over undefined")
-    when Undefined
     else
       raise TypeError.new(self, "#{object.class} is not iterable")
     end

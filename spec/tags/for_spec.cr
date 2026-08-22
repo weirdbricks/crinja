@@ -14,16 +14,27 @@ describe Crinja::Tag::For do
     render(%({% for i in numbers %}{{ i }}{% endfor %}), {"numbers" => [1, 2, 3, 4, 5]}).should eq("12345")
   end
 
-  it "renders else" do
-    render(%({% for item in seq %}XXX{% else %}...{% endfor %})).should eq("...")
+  it "raises when seq is undefined" do
+    # Ported from pallets/jinja's test_else, which asserts on vanilla
+    # Jinja2's lenient default-Undefined behavior (renders the else
+    # clause). Ansible's environment is stricter: iterating an
+    # undefined variable in a `{% for %}` always raises, verified live
+    # against real ansible-playbook (ahuffman.resolv role, round 159).
+    expect_raises(Crinja::TypeError, "can't iterate over undefined") do
+      render(%({% for item in seq %}XXX{% else %}...{% endfor %}))
+    end
   end
 
-  it "renders else with correct scoping" do
-    render(%({% for item in seq %}XXX{% else %}{{ item }}{% endfor %}), {"item" => "42"}).should eq("42")
+  it "raises when seq is undefined even with an else-scoped var of the same name" do
+    expect_raises(Crinja::TypeError, "can't iterate over undefined") do
+      render(%({% for item in seq %}XXX{% else %}{{ item }}{% endfor %}), {"item" => "42"})
+    end
   end
 
-  it "renders empty blocks" do
-    render(%(<{% for item in seq %}{% else %}{% endfor %}>)).should eq("<>")
+  it "raises for empty blocks when seq is undefined" do
+    expect_raises(Crinja::TypeError, "can't iterate over undefined") do
+      render(%(<{% for item in seq %}{% else %}{% endfor %}>))
+    end
   end
 
   it "renders context vars" do

@@ -4,8 +4,13 @@ require "../../src/runtime/value"
 
 describe Crinja::Value do
   describe "#each" do
-    it "creates empty iterator for Undefined" do
-      Crinja::Value.new(Crinja::Undefined.new).to_a.should eq([] of Crinja::Value)
+    it "raises for Undefined" do
+      # Ansible's Jinja2 environment raises UndefinedError on iterating
+      # any Undefined value (not just StrictUndefined) - verified live
+      # against real ansible-playbook (ahuffman.resolv role, round 159).
+      expect_raises(Crinja::TypeError, "can't iterate over undefined") do
+        Crinja::Value.new(Crinja::Undefined.new).to_a
+      end
     end
 
     it "creates iterator" do
