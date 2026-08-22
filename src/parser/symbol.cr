@@ -60,8 +60,7 @@ module Crinja::Parser::Symbol
     LEFT_CURLY   => RIGHT_CURLY,
   }
 
-  TEST       = "is"
-  RAW_START  = "raw"
-  RAW_END    = "endraw"
-  WHITESPACE = [' ', '\t', '\n', '\r']
+  TEST      = "is"
+  RAW_START = "raw"
+  RAW_END   = "endraw"
 end

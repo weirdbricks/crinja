@@ -164,9 +164,20 @@ module Crinja::Parser
     end
 
     def skip_whitespace
+      # Char#whitespace? (Unicode White_Space property), not a fixed
+      # ASCII-only [' ', '\t', '\n', '\r'] set - real Jinja2 (Python's
+      # `re` module, Unicode-mode by default) treats a much broader
+      # class as whitespace, including U+00A0 NO-BREAK SPACE. Found via
+      # a real Galaxy role (buluma.bind's own etc_named.conf.j2) whose
+      # `{{ bind_dnssec_validation }}` had accidentally picked up a
+      # U+00A0 right after `{{` (a common copy/paste artifact) - real
+      # ansible-playbook rendered it fine; this lexer's old ASCII-only
+      # check didn't recognize the NBSP as whitespace-before-token at
+      # all, corrupting the expression parse ("Not implemented
+      # expression value").
       whitespace = String.build do |io|
         while true
-          if Symbol::WHITESPACE.includes?(current_char)
+          if current_char.whitespace?
             @skipped_whitespace = true
             io << current_char
             next_char

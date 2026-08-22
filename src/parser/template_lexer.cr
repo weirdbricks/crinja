@@ -185,7 +185,7 @@ class Crinja::Parser::TemplateLexer < Crinja::Parser::BaseLexer
   end
 
   def peek_for_whitespace_offset(offset = 1)
-    while Symbol::WHITESPACE.includes?(peek_char(offset))
+    while peek_char(offset).whitespace?
       offset += 1
     end
     offset
