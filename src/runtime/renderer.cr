@@ -153,7 +153,20 @@ class Crinja::Renderer
 
     result = env.evaluate(expr)
 
-    RenderedOutput.new env.stringify(result)
+    # Real Ansible's own Jinja `Environment` sets a `finalize` callback
+    # (`templar.py`: `'' if x is None else x`) that runs ONLY on a
+    # template's own top-level `{{ }}` output, converting a bare `None`
+    # result to nothing at all - verified directly against real
+    # `ansible-playbook`, both for a `template:` file (`{{ extra_var
+    # }}` on its own line renders as a blank line, not "None") and for
+    # a plain `debug: msg:` substitution. Deliberately scoped to just
+    # THIS call site (not `Finalizer#stringify(Nil)`/`env.stringify`
+    # itself, both shared with `join`/`~`/`+`, which real Ansible's own
+    # `join('|')` etc. verified DO still render a `None` item as
+    # Python's real `"None"` - the finalize hook genuinely only fires
+    # at the template's own outermost print boundary, not on every
+    # internal filter/operator's own value-to-string conversion).
+    RenderedOutput.new(result.raw.nil? ? "" : env.stringify(result))
   end
 
   # global function `super` needs access to this renderer and thus needs to be implemented

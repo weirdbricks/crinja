@@ -141,7 +141,7 @@ describe Crinja::Operator do
       evaluate_expression("1 and 1").should eq("1")
     end
     it "works" do
-      evaluate_expression("true and none").should eq("none")
+      evaluate_expression("true and none").should eq("None")
     end
     it "evaluates right branch if first is true" do
       env = Crinja.new
@@ -162,7 +162,7 @@ describe Crinja::Operator do
   describe "or" do
     it "works" do
       evaluate_expression("true or true").should eq("True")
-      evaluate_expression("false or none").should eq("none")
+      evaluate_expression("false or none").should eq("None")
       evaluate_expression("1 or 1").should eq("1")
       evaluate_expression("true or none").should eq("True")
     end

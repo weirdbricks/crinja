@@ -73,6 +73,7 @@ describe "whitespace" do
     it "strips a leading run of several blank lines after `-%}`" do
       template = parse(%(<div>\n    {% if true -%}\n\n\n        yay\n    {% endif %}\n</div>))
       text_value(template.nodes.children[1].as(Crinja::AST::TagNode).block.children[0]).should eq("yay\n    ")
+      template.render.should eq "<div>\n    yay\n    \n</div>"
     end
 
     it "strips a trailing run of several blank lines before `{%-`" do
@@ -81,17 +82,10 @@ describe "whitespace" do
       template.render.should eq "<div>\n    \n        yay\n</div>"
     end
 
-    # NOTE: this one only checks the if-block's OWN inner text segment
-    # (which IS this fix's scope) - the text AFTER `{%- endif %}` is
-    # affected by a SEPARATE, pre-existing parser bug (`@trim_left`
-    # instance-variable state leaking across a nested block's own
-    # end-tag boundary, giving the sibling text after certain nested
-    # blocks a spurious `trim_left = true` it never earned from an
-    # actual adjacent dash) - out of scope here, tracked separately in
-    # KNOWN_MISSING.md.
-    it "strips multi-line whitespace runs on BOTH sides of the if-block's own inner text" do
+    it "strips multi-line whitespace runs on BOTH sides at once" do
       template = parse(%(<div>\n    {% if true -%}\n\n        yay\n\n    {%- endif %}\n</div>))
       text_value(template.nodes.children[1].as(Crinja::AST::TagNode).block.children[0]).should eq("yay")
+      template.render.should eq "<div>\n    yay\n</div>"
     end
 
     it "matches buluma.collectd's own Filter/Include block shape" do

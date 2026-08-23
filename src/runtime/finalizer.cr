@@ -28,9 +28,21 @@ struct Crinja::Finalizer
     raw.to_s(@io)
   end
 
-  # Convert a `nil` to `"none"`.
+  # Convert a `nil` to `"None"` - real Python's `str(None)`, same idea
+  # as the `Bool` overload just below (which matches Python's
+  # `str(True)`/`str(False)`). Verified directly against real
+  # `ansible-playbook`: `{{ [none, false, 0] | reject | join('|') }}`
+  # (a value flowing through a FILTER, not straight to a template's own
+  # top-level output) renders as `None|False|0` - capitalized Python
+  # `str()`, NOT empty. This previously rendered lowercase `"none"` -
+  # neither real Python's `"None"` nor (see `Renderer#render`'s own
+  # `PrintStatement` visit, a few lines of a DIFFERENT, narrower
+  # override) real Ansible's top-level-output-only `""` - a value that
+  # never actually matched anything real. Found via `buluma.collectd`'s
+  # own `collectd_conf_extra` (default `null`) rendering as a literal
+  # `none` glued onto the preceding line, round170.
   protected def stringify(raw : Nil)
-    @io << "none"
+    @io << "None"
   end
 
   # Real Jinja2 (via Python's `str()`) renders a bare boolean as

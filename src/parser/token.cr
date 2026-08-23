@@ -71,6 +71,8 @@ class Crinja::Parser::Token
     @location = pos
     @whitespace_before = nil
     @whitespace_after = nil
+    @trim_left = false
+    @trim_right = false
   end
 
   def inspect(io : IO)

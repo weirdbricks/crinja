@@ -542,7 +542,7 @@ describe Crinja::Filter do
     end
 
     it "bool_reject" do
-      evaluate_expression(%([none, false, 0, 1, 2, 3, 4, 5]|reject|join("|"))).should eq "none|False|0"
+      evaluate_expression(%([none, false, 0, 1, 2, 3, 4, 5]|reject|join("|"))).should eq "None|False|0"
     end
 
     it "simple_select_attr" do
