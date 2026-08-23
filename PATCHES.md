@@ -163,8 +163,15 @@ correctly): `' '.join(['a','b']).split()`, dict-literal `.get(key,
 default)`, and chained/nested inline ternary
 (`'a' if true else 'b' if false else 'c'`).
 
-The vendor's own spec suite failures noted above (bool-string cascade,
-recursive-for trim_blocks) are not fixed - see those notes for why.
+The vendor's own bool-string-cascade spec failures noted above are not
+fixed - see that note for why. (The recursive-for + `trim_blocks`
+divergence noted here previously is now GONE as of 0.9.16 - see that
+changelog entry.)
+
+Newly found in 0.9.16, not fixed: `template_parser.cr`'s `@trim_left`/
+`@left_is_block` instance-variable state can leak a stale `true` across a
+nested block's own end-tag boundary - see the 0.9.16 changelog entry for
+the minimal repro and where a proper fix would start.
 
 ## Fixes worth upstreaming
 
@@ -308,3 +315,76 @@ old expectations before updating them).
 The "Fixes worth upstreaming" list below is DEAD: none of these will be
 submitted as PRs upstream. They remain permanently here in the fork (all
 migrated into real source as of 0.9.3). Do not re-open.
+
+## 0.9.16 (2026-08-23): explicit `-` whitespace control now strips a FULL multi-line run
+
+Real Jinja2's explicit dash whitespace control (`{% for -%}`/`{%- endfor %}`)
+strips ALL contiguous whitespace on that side, unbounded - potentially
+crossing several blank lines, right up to the first non-whitespace
+character. This fork's `Util::StringTrimmer.trim` only ever implemented a
+narrower shape (first-line-only lstrip / last-line-only rstrip, optionally
+dropping one adjacent newline) - correct for the SEPARATE implicit
+`trim_blocks`/`lstrip_blocks` config (which really is that narrow by real
+Jinja2's own design), but wrong for an explicit `-` on any text segment
+spanning more than one line. First found (and left unfixed - see the
+"trim_blocks under-trimming" bullet under Migrated patches above, a
+different narrower patch) via a real `collectd.conf.j2` template on the
+crystal-ansible side; a prior fix attempt there (redesigning `trim()`'s own
+signature to 4 distinct flags) regressed 21 of this fork's own specs and
+was reverted without being retried.
+
+Fixed this time in `src/runtime/renderer.cr`'s `trim_text` only -
+`StringTrimmer.trim` itself is completely untouched, so its own existing
+spec coverage (`spec/util/string_trimmer_spec.cr`) needed zero changes.
+An explicitly-marked side (`node.trim_left`/`node.trim_right`) is now
+fully `lstrip`/`rstrip`-ed up front - real Crystal/Python semantics, every
+contiguous whitespace character regardless of how many newlines it spans -
+before `trim` ever runs, and that side's own flag into `trim` is forced
+false so `trim` doesn't reprocess it. `trim` only still runs its existing,
+narrower logic for whichever side is trimmed SOLELY by the implicit
+trim_blocks/lstrip_blocks config, with no explicit `-` present.
+
+New specs added (`spec/parser/whitespace_spec.cr`, "multi-line explicit
+dash (round170 gap)" describe block) covering a multi-line leading run, a
+multi-line trailing run, and the real `collectd.conf.j2`-shaped
+`{% for -%}...{%- endfor %}` case, each verified against a real
+`jinja2.Environment` render before being written down as the expected
+value.
+
+**9 pre-existing specs updated to their real-Jinja2-verified correct
+values** (all previously encoded the OLD narrow-trim bug as if it were
+correct behavior - each one individually re-verified against a real
+`jinja2.Environment` render before updating, not just adjusted to
+whatever the new code happened to produce):
+`spec/crinja_spec.cr` ("respects comments"), `spec/parser/
+whitespace_spec.cr` (6 of the original 8 cases), `spec/integration/
+hello_world_spec.cr` (golden fixture `hello_world.html.rendered`),
+`spec/integration/if_test_spec.cr`, `spec/lib/filter_spec.cr` (3 `groupby`
+cases). Also, as a bonus (not separately attempted): `spec/tags/
+for_spec.cr`'s 3 "KNOWN DIVERGENCE from real Python jinja2" recursive-for
++ trim_blocks cases now match real Jinja2 exactly too - that divergence is
+gone, the caveat comments were removed and expectations updated to the
+real-Jinja2 values the comments already documented.
+
+**New, separate, still-open gap found while verifying the above** (NOT
+fixed this round - out of scope, tracked here so it isn't rediscovered
+from scratch): `template_parser.cr`'s `@trim_left`/`@left_is_block`
+parser-state instance variables can leak a stale `true` across a nested
+block's own end-tag boundary, giving the sibling text immediately AFTER
+certain nested blocks a spurious `trim_left = true` it never earned from
+an actual adjacent `-` or the implicit trim_blocks config. Confirmed
+pre-existing (reproduces identically against the pre-0.9.16 code too, not
+a regression from this fix). Minimal repro: `<div>\n    {% if true -%}\n
+\n        yay\n    {% endif %}\n</div>` (endif has NO dash at all) -
+the trailing `"\n</div>"` text node still comes back with `trim_left =
+true`, silently eating the newline before `</div>` that real Jinja2
+keeps. Needs its own dedicated parser-state trace (likely: `@trim_left`/
+`@left_is_block` need to be saved/restored around the recursive
+`parse_node_list(true)` call for a tag's own block, the same class of bug
+`parse_fixed_string`'s own reset-after-use already guards against for the
+non-nested case) - not attempted here to keep this fix scoped to the
+whitespace-AMOUNT logic it set out to fix.
+
+Full fork spec suite: 546 examples, 0 failures, 0 errors, 11 pending
+(unchanged pending count - none of the pending specs are related to this
+fix).

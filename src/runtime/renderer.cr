@@ -75,27 +75,53 @@ class Crinja::Renderer
   # Real Jinja2's `trim_blocks` config only removes a SINGLE newline
   # character immediately following a block tag - it does nothing at all
   # when there's no newline there to remove.
-  # `Util::StringTrimmer.trim`'s own "no newline found in this text
-  # segment" branch does `first_line.lstrip`, unconditionally stripping
-  # EVERY leading whitespace character - correct for an explicit
-  # `{%- ... %}` minus-trim (which really does mean "strip all adjacent
-  # whitespace"), but routing both the explicit `-` case AND the
-  # implicit trim_blocks-config case through the same "left" flag means
-  # trim_blocks alone - with no explicit `-` anywhere - also triggers
-  # that aggressive whole-segment lstrip whenever the text right after a
-  # block tag has no newline in it (`{% endif %} {{ x }}`, a single
-  # literal space with no newline), silently eating a real, meaningful
-  # space. Guarded to only apply the implicit trim_blocks trigger when
-  # the text segment actually starts with a newline - an explicit
-  # `node.trim_left` (real `-` syntax) is untouched and still always
-  # fully strips, which is correct.
+  #
+  # Explicit `-` whitespace control (`node.trim_left`/`node.trim_right`)
+  # means something categorically stronger than the implicit trim_blocks/
+  # lstrip_blocks config: real Jinja2 strips ALL contiguous whitespace on
+  # that side - unbounded, potentially crossing several blank lines -
+  # right up to the first non-whitespace character (verified directly
+  # against a real `jinja2.Environment` render, not assumed: `{% if true
+  # -%}\n        yay\n    {% endif %}` renders as bare `yay` immediately
+  # following the preceding static text, with NOT ONE of the newline/
+  # space characters between the tag and `yay` surviving). The implicit
+  # trim_blocks/lstrip_blocks config, by contrast, is deliberately much
+  # narrower - it only ever removes a SINGLE newline character (trim_
+  # blocks) or the whitespace-only prefix of the tag's OWN line
+  # (lstrip_blocks), never reaching past it into further lines.
+  #
+  # `Util::StringTrimmer.trim` only ever implements that second, narrower
+  # shape (first-line-only lstrip / last-line-only rstrip, optionally
+  # dropping one adjacent newline) - correct for the implicit case, but
+  # wrong for explicit `-` on any text segment spanning more than one
+  # line (a blank line, or more, between the tag and real content) -
+  # only the FIRST such line's whitespace got stripped, leaving the rest
+  # untouched (found via `buluma.collectd`'s own `collectd.conf.j2`,
+  # round170 - first found and left unfixed on a different template in
+  # round85).
+  #
+  # Fixed here, not in `StringTrimmer.trim` itself: an explicitly-marked
+  # side is fully `lstrip`/`rstrip`-ed UP FRONT (real Crystal/Python
+  # semantics - strips every contiguous whitespace character, spanning
+  # any number of newlines, unconditionally) before ever reaching `trim`,
+  # and that side's own `left`/`right` flag into `trim` is then forced
+  # false so `trim` doesn't reprocess it - it only still runs its
+  # existing (unchanged, still fully spec-covered) narrow logic for
+  # whichever side is trimmed solely by the IMPLICIT trim_blocks/
+  # lstrip_blocks config with no explicit `-` present. This keeps every
+  # one of `StringTrimmer.trim`'s own existing behaviors and specs
+  # completely untouched - only this call site's OWN dispatch changes.
   def self.trim_text(node, trim_blocks = false, lstrip_blocks = false)
     implicit_trim_blocks = trim_blocks && node.left_is_block && node.string.starts_with?('\n')
 
+    string = node.string
+    string = string.lstrip if node.trim_left
+    string = string.rstrip if node.trim_right
+
     Crinja::Util::StringTrimmer.trim(
-      node.string,
-      node.trim_left || implicit_trim_blocks,
-      node.trim_right || (lstrip_blocks && node.right_is_block),
+      string,
+      (!node.trim_left) && implicit_trim_blocks,
+      (!node.trim_right) && (lstrip_blocks && node.right_is_block),
       node.left_is_block,
       node.right_is_block && lstrip_blocks
     )

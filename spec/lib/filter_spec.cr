@@ -454,12 +454,7 @@ describe Crinja::Filter do
         {{ grouper }}{% for x in list %}: {{ x.foo }}, {{ x.bar }}{% endfor %}|
         {%- endfor %}
         TPL
-      ).split("|\n").should eq [
-        "1: 1, 2: 1, 1",
-        "2: 2, 3",
-        "3: 3, 4",
-        "",
-      ]
+      ).should eq "1: 1, 2: 1, 1|2: 2, 3|3: 3, 4|"
     end
 
     it "tuple_index" do
@@ -468,7 +463,7 @@ describe Crinja::Filter do
         {{ grouper }}{% for x in list %}:{{ x.1 }}{% endfor %}|
         {%- endfor %}
         TPL
-      ).should eq "a:1:2|\nb:1|\n"
+      ).should eq "a:1:2|b:1|"
     end
 
     it "multidot" do
@@ -483,11 +478,7 @@ describe Crinja::Filter do
         {{ year }}{% for x in list %}[{{ x.title }}]{% endfor %}|
         {%- endfor %}
         TPL
-        {articles: articles}).split("|\n").should eq [
-        "1970[aha][interesting][really?]",
-        "1971[totally not]",
-        "",
-      ]
+        {articles: articles}).should eq "1970[aha][interesting][really?]|1971[totally not]|"
     end
   end
 

@@ -34,7 +34,10 @@ describe Crinja do
   end
 
   it "respects comments" do
-    render(%(Hello, \n{#- foob\nbar -#}\nWorld!)).should eq("Hello, \nWorld!")
+    # Round170: explicit `-#}`/`{#-` fully strips ALL adjacent
+    # whitespace (matching real Jinja2, verified directly) - not just
+    # the one newline this expectation previously encoded.
+    render(%(Hello, \n{#- foob\nbar -#}\nWorld!)).should eq("Hello,World!")
   end
 
   it "renders simple test" do

@@ -11,7 +11,6 @@ describe "if_test" do
       "test" => true,
     }).should eq("Hello John!
 
-    How are you?
-")
+How are you?")
   end
 end

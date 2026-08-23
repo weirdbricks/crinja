@@ -95,15 +95,11 @@ describe Crinja::Tag::For do
         {"a" => 1, "b" => [{"a" => 1}, {"a" => 2}]},
         {"a" => 2, "b" => [{"a" => 1}, {"a" => 2}]},
         {"a" => 3, "b" => [{"a" => "a"}]},
-      ]}, trim_blocks: true).should eq("[1<[1]\n[2]\n>]\n[2<[1]\n[2]\n>]\n[3<[a]\n>]\n")
-      # KNOWN DIVERGENCE from real Python jinja2 (which yields
-      # "[1<[1][2]>][2<[1][2]>][3<[a]>]") - the `-%}`/`{%-` trim markers are
-      # not honored inside a RECURSIVE for-body re-render, leaving the
-      # source newlines. Accepted as cosmetic: recursive-for + trim_blocks
-      # is rare in real Ansible templates (never exercised by any benchmark
-      # round), and reworking the trim engine risks the common-case output
-      # that IS live-verified. This assertion documents the fork's actual
-      # (non-regressive) behavior, not Python parity.
+      ]}, trim_blocks: true).should eq("[1<[1][2]>][2<[1][2]>][3<[a]>]")
+      # Round170: `-%}`/`{%-` trim markers are now honored inside a
+      # RECURSIVE for-body re-render too (previously they weren't, leaving
+      # the source newlines - see git history) - this now matches real
+      # Python jinja2 exactly, verified directly.
   end
 
   it "recursive_depth0" do
@@ -120,10 +116,9 @@ describe Crinja::Tag::For do
         {"a" => 1, "b" => [{"a" => 1}, {"a" => 2}]},
         {"a" => 2, "b" => [{"a" => 1}, {"a" => 2}]},
         {"a" => 3, "b" => [{"a" => 'a'}]},
-      ]}, trim_blocks: true).should eq("[0:1<[1:1]\n[1:2]\n>]\n[0:2<[1:1]\n[1:2]\n>]\n[0:3<[1:a]\n>]\n")
-      # KNOWN DIVERGENCE from real Python jinja2 (extraneous newlines in a
-      # recursive for-body re-render) - see the "recursive" test's note.
-      # Accepted as cosmetic; documents actual fork behavior.
+      ]}, trim_blocks: true).should eq("[0:1<[1:1][1:2]>][0:2<[1:1][1:2]>][0:3<[1:a]>]")
+      # Round170: now matches real Python jinja2 exactly - see the
+      # "recursive" test's note.
   end
 
   it "recursive_depth" do
@@ -139,10 +134,9 @@ describe Crinja::Tag::For do
         {"a" => 1, "b" => [{"a" => 1}, {"a" => 2}]},
         {"a" => 2, "b" => [{"a" => 1}, {"a" => 2}]},
         {"a" => 3, "b" => [{"a" => "a"}]},
-      ]}, trim_blocks: true).should eq("[1:1<[2:1]\n[2:2]\n>]\n[1:2<[2:1]\n[2:2]\n>]\n[1:3<[2:a]\n>]\n")
-      # KNOWN DIVERGENCE from real Python jinja2 (extraneous newlines in a
-      # recursive for-body re-render) - see the "recursive" test's note.
-      # Accepted as cosmetic; documents actual fork behavior.
+      ]}, trim_blocks: true).should eq("[1:1<[2:1][2:2]>][1:2<[2:1][2:2]>][1:3<[2:a]>]")
+      # Round170: now matches real Python jinja2 exactly - see the
+      # "recursive" test's note.
   end
 
   it "looploop" do
