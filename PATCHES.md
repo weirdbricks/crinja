@@ -1,36 +1,36 @@
 # PATCHES.md
 
 This is a fork of [straight-shoota/crinja](https://github.com/straight-shoota/crinja),
-maintained for [crystal-ansible](https://github.com/weirdbricks/crystal-ansible)
+maintained for [krikri](https://github.com/weirdbricks/krikri)
 (a from-scratch `ansible-playbook` reimplementation in Crystal, which vendors
 Crinja as its Jinja2 template engine for real `.j2` template rendering).
 
 ## Why this fork exists
 
-See `crystal-ansible`'s own `CRINJA.md` (repo root) for the full reasoning.
-Short version: crystal-ansible originally patched Crinja behavior by
+See `krikri`'s own `CRINJA.md` (repo root) for the full reasoning.
+Short version: krikri originally patched Crinja behavior by
 reopening its Crystal classes from small `crinja_*_ext.cr` files rather
 than editing `lib/crinja` directly (which is `.gitignore`d and refetched
 by every `shards install`). That worked, but `shard.yml` pointed at
 upstream `branch: master`, which means any `shards update` could
 silently pull a refactor that breaks one of those class-reopening
-patches without warning. This fork exists so crystal-ansible can pin to
+patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
 ## Status: fully migrated (2026-08-13)
 
-As of this update, every `crinja_*_ext.cr` patch crystal-ansible carried
+As of this update, every `crinja_*_ext.cr` patch krikri carried
 has been migrated into this fork's REAL source (not a class-reopening
 patch anymore) - see "Migrated patches" below for the full list and where
-each one now lives. crystal-ansible's own `crinja_*_ext.cr` files for
+each one now lives. krikri's own `crinja_*_ext.cr` files for
 these are now dead code, safe to delete (done in the same commit that
 repoints `shard.yml` at the tag this migration produced).
 
 ## Baseline
 
 Tag `crystal-play-0.9.0` = commit `4688cc7764a113a3b1d337cb59dc0244896121e1`
-("Release v0.9.0 (#96)") - the exact commit crystal-ansible's `shard.lock`
+("Release v0.9.0 (#96)") - the exact commit krikri's `shard.lock`
 had pinned before this fork existed.
 
 ## Migrated patches
@@ -60,7 +60,7 @@ monkey-patches:
   newline in it** - `src/runtime/renderer.cr`. NOTE: this fork's own
   `spec/tags/for_spec.cr` recursive-for-loop tests fail against this fix
   (extra newlines vs. expected) - this is a PRE-EXISTING trade-off
-  already shipped in crystal-ansible's production `crinja_trim_blocks_
+  already shipped in krikri's production `crinja_trim_blocks_
   ext.cr` for a long time (21+ real-host benchmark rounds), not a new
   regression from this migration - just newly visible because this is
   the first time this exact patch has been run against the fork's own
@@ -122,7 +122,7 @@ monkey-patches:
   `src/lib/test/tests.cr`.
 - **Hash finalization used Crystal's own `Hash#to_s` separator** (`{'a'
   => 1}`) **instead of real Python/Jinja2 dict repr** (`{'a': 1}`) -
-  `src/runtime/finalizer.cr`. Found auditing crystal-ansible's CRINJA.md
+  `src/runtime/finalizer.cr`. Found auditing krikri's CRINJA.md
   step-5 `#evaluate_expr` swap (the fourth-construct sub-piece work,
   checking whether `range()`/`dict()`/container-valued bare-call results
   are safe to converge) - already reachable through PREVIOUSLY converged
@@ -134,9 +134,9 @@ monkey-patches:
   and are now updated to the correct `:` form; net effect on the fork's
   own spec suite is 2 fewer failures, not more.
 
-## Deliberately NOT migrated - Ansible-specific, stays in crystal-ansible
+## Deliberately NOT migrated - Ansible-specific, stays in krikri
 
-These remain in crystal-ansible's own `src/crystal_play/jinja_filters.cr`
+These remain in krikri's own `src/krikri/jinja_filters.cr`
 (and a couple of sibling files), registered at the application level, not
 here: `ternary`, `regex_replace`, `password_hash`, `to_json`/
 `to_nice_json`, `to_yaml`/`to_nice_yaml`, `comment`, `mandatory`, `bool`,
@@ -148,7 +148,7 @@ are standard Jinja2 - a general-purpose Jinja2-for-Crystal engine
 shouldn't ship Ansible-only behavior baked in.
 
 Known minor redundancy: `max`/`min`/`ne`/`truthy` are now registered in
-BOTH this fork (correctly, as core Jinja2 features) AND crystal-ansible's
+BOTH this fork (correctly, as core Jinja2 features) AND krikri's
 `jinja_filters.cr` (left over from before this migration, interleaved in
 the same file with the genuinely-Ansible-specific `boolean`/`integer`/
 `float` tests that must stay there) - harmless (later registration wins,
@@ -171,7 +171,7 @@ changelog entry. The trim-state-leak that the 0.9.16 entry flagged as
 
 ## Fixes worth upstreaming
 
-Per crystal-ansible's `CRINJA.md`: explicitly deferred by the user as of
+Per krikri's `CRINJA.md`: explicitly deferred by the user as of
 this update - "do everything except the upstreaming." Best candidates
 when that's picked up, roughly in order of how "obviously a bug, not a
 preference" they are: `Value#truthy?`, `and`/`or` operand semantics,
@@ -186,7 +186,7 @@ to silently succeed with an EMPTY dict because `src/lib/function/dict.cr`
 read only kwargs. Now handles the single positional argument (a mapping, or
 an iterable of 2-item list/tuple pairs), merges kwargs on top, and raises
 `Arguments::Error` for a non-mapping/non-iterable arg or >1 positional arg.
-This is what unblocks crystal-ansible's step-5 convergence of the
+This is what unblocks krikri's step-5 convergence of the
 ExpressionEvaluator `dict(` bare-call leaf. See fork `spec/functions/
 dict_spec.cr`.
 
@@ -199,7 +199,7 @@ subtracts two `Time` values into `Crinja::TimeDelta` (a Crinja::Object with
 Python `str(timedelta)`-style `to_s`). Also fixed the latent `Value#time?`
 bug this exposed (bare `is_a(Time)` on the Raw union -> `is_a?(Time)`; never
 compiled before because nothing called it). A `to_datetime` filter itself is
-NOT in the fork - it is Ansible-specific and lives in crystal-ansible's
+NOT in the fork - it is Ansible-specific and lives in krikri's
 `jinja_filters.cr` (produces a `Crinja::Value` wrapping a real `::Time`).
 
 ## 0.9.6 (2026-08-14): vendored spec suite cleaned 121 -> 0 (specs only)
@@ -228,7 +228,7 @@ keyword args (`Crinja.test({compare_to: "", operator: "=="}, :version)`)
 received the whole tuple packed into the first arg and never saw the
 second at all, silently defaulting it instead of raising. Every
 built-in test in this fork's own `tests.cr` only ever takes 0 or 1
-argument, so this was never exercised until crystal-ansible's own
+argument, so this was never exercised until krikri's own
 `version`/`version_compare` tests (2 args: compare-to + operator) hit
 it live benchmarking `prometheus.prometheus.prometheus`'s own `is
 version('2.7.0', '>=')` idiom - `>=`/`>`/`<`/etc all silently behaved
@@ -252,7 +252,7 @@ template render the instant `foo` (or any earlier link) was undefined -
 even when the final result was wrapped in `default(...)` and never
 actually needed.
 
-Real bug found benchmarking `robertdebock.haproxy` (crystal-ansible
+Real bug found benchmarking `robertdebock.haproxy` (krikri
 round 41): its own `haproxy.cfg.j2` template has `server.address |
 default(hostvars[server.name]['ansible_facts']['default_ipv4']
 ['address'])` - `server.address` is defined (a literal IP in the test
@@ -285,13 +285,13 @@ This doesn't fully replicate Ansible's Marker/StrictUndefined nuance
 (a genuinely-undefined value that's *never* chained and is directly
 rendered still resolves to an empty string here via the fork's existing
 default `Undefined#to_s`, rather than raising like Ansible's `Marker`
-would) - crystal-ansible's CrinjaRenderer already relied on that
+would) - krikri's CrinjaRenderer already relied on that
 lenient bare-undefined-render-as-empty behavior before this change (see
 its own template_action_plugin.cr comments on ternary-without-else
 rendering), so this fix makes chained access consistent with that
 already-accepted behavior rather than introducing a new category of
 leniency. Getting the stricter final-render-raises-when-actually-used
-half of Ansible's real semantics would need crystal-ansible to switch
+half of Ansible's real semantics would need krikri to switch
 its configured `Undefined` class to something like `StrictUndefined`
 project-wide - a materially bigger, riskier change with its own blast
 radius across every other undefined-producing code path, deliberately
@@ -319,7 +319,7 @@ Jinja2's own design), but wrong for an explicit `-` on any text segment
 spanning more than one line. First found (and left unfixed - see the
 "trim_blocks under-trimming" bullet under Migrated patches above, a
 different narrower patch) via a real `collectd.conf.j2` template on the
-crystal-ansible side; a prior fix attempt there (redesigning `trim()`'s own
+krikri side; a prior fix attempt there (redesigning `trim()`'s own
 signature to 4 distinct flags) regressed 21 of this fork's own specs and
 was reverted without being retried.
 
@@ -392,10 +392,10 @@ container, not just the outermost.
 
 ## 0.9.18 (2026-08-30): `Value#compare` missing a `Crinja::Tuple` case
 
-Sorting (`dict.items() | sort`, crystal-ansible round 200) crashed with a
+Sorting (`dict.items() | sort`, krikri round 200) crashed with a
 type error when the comparison reached a `Crinja::Tuple`, because
 `Value#compare` enumerated every other raw type but not tuples. Tuples now
-compare element-wise like real Jinja2/Python (crystal-ansible's
+compare element-wise like real Jinja2/Python (krikri's
 `crystal-play-0.9.18`).
 
 ## 0.9.19 (2026-08-30): full whitespace-control conformance + BOOL-literal test names
@@ -432,9 +432,9 @@ four `trim_blocks` x `lstrip_blocks` configurations:
   them as tests; the grammar previously crashed with "Expected IDENTIFIER,
   got BOOL". Plain `{{ true }}` literals are unaffected.
 
-Same commit also fixed a second crystal-ansible-side block-tag undefined
+Same commit also fixed a second krikri-side block-tag undefined
 root cause (its `scan_block_tag_refs` checked a dotted chain as a flat
-`@vars` key) - see crystal-ansible's KNOWN_MISSING.md round-200 entry for
+`@vars` key) - see krikri's KNOWN_MISSING.md round-200 entry for
 that half.
 
 
@@ -442,7 +442,7 @@ that half.
 ## Upstreaming - DECIDED NOT TO DO (2026-08-14)
 
 
-## Registration exclusions (deliberate, crystal-ansible side)
+## Registration exclusions (deliberate, krikri side)
 
 Recorded from the Pattern-2 audit so the reasoning survives the scratch
 checklist: collection-namespaced plugins (`ansible.utils.*`,

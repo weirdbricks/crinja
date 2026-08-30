@@ -631,7 +631,7 @@ describe Crinja::Filter do
   describe "wordwrap" do
     it "packs whole words onto each line, matching Python's own textwrap.wrap (what real Jinja2's wordwrap filter actually calls) - not fixed-width character chunking" do
       # Verified against real Python textwrap.wrap output directly, not
-      # assumed: found via crystal-ansible's own robertdebock.functions
+      # assumed: found via krikri's own robertdebock.functions
       # benchmark round - the previous fixed-width-chunk implementation
       # gave a completely different output shape for anything but
       # single-character "words".

@@ -18,7 +18,7 @@ describe "expressions" do
     # visit) - real Ansible's own Jinja Environment finalize hook
     # (`templar.py`: `'' if x is None else x`) renders None as nothing
     # at all there specifically, verified directly against a real
-    # ansible-playbook run. This is the path crystal-ansible's own
+    # ansible-playbook run. This is the path krikri's own
     # CrinjaRenderer actually uses (`Template#render`), unlike the bare
     # `env.evaluate(String)` helper the sibling spec above exercises.
     render(%({{ none }}|{{ x }}), {x: nil}).should eq "|"

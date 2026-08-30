@@ -8,7 +8,7 @@ require "../object"
 # Ansible's `to_datetime(...) - to_datetime(...)` idiom, e.g. dev-sec
 # os_hardening's password-ageing day-count assert reading `.days` off the
 # result). Only non-negative differences are expected in practice (an
-# earlier date subtracted from a later one), matching crystal-ansible's own
+# earlier date subtracted from a later one), matching krikri's own
 # hand-rolled timedelta; a negative span is not normalized like Python's
 # truncating `timedelta.days` would.
 class Crinja::TimeDelta

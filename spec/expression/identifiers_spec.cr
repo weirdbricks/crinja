@@ -31,7 +31,7 @@ describe "expressions with identifiers" do
   # value is undefined, and never has to force the fallback expression's
   # OWN undefined chain into a concrete value along the way. See
   # PATCHES.md's 0.9.8 entry for the real-world bug this was found
-  # fixing (crystal-ansible round 41, robertdebock.haproxy's own
+  # fixing (krikri round 41, robertdebock.haproxy's own
   # `server.address | default(hostvars[server.name][...])` template).
   it "self-propagates as Undefined, not a raise, when the base of an IndexExpression is undefined" do
     evaluate_expression(%(posts[0].user.name)).should eq("")

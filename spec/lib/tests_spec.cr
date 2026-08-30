@@ -127,11 +127,11 @@ describe Crinja::Test do
     # a single parenthesized tuple-literal EXPRESSION (parse_literal's
     # own `Kind::LEFT_PAREN` branch), landing as ONE positional argument
     # instead of two. A test declared with 2 keyword args (like a real
-    # crystal-ansible caller's `version(compare_to, operator)`) received
+    # krikri caller's `version(compare_to, operator)`) received
     # the whole tuple packed into the FIRST arg and never saw the
     # second at all - silently defaulting it instead of raising, so this
     # was invisible unless you specifically checked the second arg's
-    # value. Found downstream in crystal-ansible benchmarking
+    # value. Found downstream in krikri benchmarking
     # prometheus.prometheus.prometheus's own `is version('2.7.0', '>=')`
     # idiom.
     it "binds both parenthesized positional arguments separately, not as one tuple" do

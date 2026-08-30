@@ -24,7 +24,7 @@ module Crinja::Filter
     # terabyte-scale byte counts) silently returned the filter's own
     # `default` (0) instead of the real number the moment it exceeded
     # Int32::MAX (~2.1 billion) - not an error, just a wrong value,
-    # discovered via crystal-ansible's own benchmarking of
+    # discovered via krikri's own benchmarking of
     # robertdebock.diskspace (`item.size_available | int >=
     # kilobytes_available | int` always evaluated as `0 >= N`, so the
     # role's whole disk-space check silently never passed regardless of

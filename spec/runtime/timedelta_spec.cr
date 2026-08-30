@@ -5,7 +5,7 @@ require "../spec_helper.cr"
 # reads (dev-sec os_hardening's password-ageing assert). These specs
 # exercise the fork-side `-` on `Time` values directly (registering a
 # `to_datetime`-style binder here; the real Ansible-specific `to_datetime`
-# filter lives in crystal-ansible).
+# filter lives in krikri).
 describe "time delta" do
   bindings = {
     "a" => Crinja::Value.new(Time.utc(2024, 1, 2)),

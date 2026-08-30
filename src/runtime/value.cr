@@ -492,7 +492,7 @@ struct Crinja::Value
       # semantics Crinja::Tuple's own `<=>` already implements by
       # delegating to its backing Array - this method just never routed
       # a Tuple-vs-Tuple pair into it, falling through to the generic
-      # "cannot compare" error instead. Found via crystal-play's own
+      # "cannot compare" error instead. Found via krikri's own
       # Oefenweb.bash template: `{% for key, value in bash_aliases.
       # items() | sort %}` (real Jinja2 sorts a dict's `.items()` - a
       # list of 2-tuples - lexicographically by key, then value, on

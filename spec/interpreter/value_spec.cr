@@ -9,7 +9,7 @@ describe Crinja::Value do
     # Value#compare had no branch for Crinja::Tuple at all, so a
     # Tuple-vs-Tuple comparison (needed to sort dict.items(), a list of
     # 2-tuples) fell to the generic "cannot compare" TypeError -
-    # found via crystal-play's own Oefenweb.bash template:
+    # found via krikri's own Oefenweb.bash template:
     # `{% for key, value in bash_aliases.items() | sort %}`.
     unsorted = [
       Crinja::Value.new(Crinja::Tuple.new("ll", "ls -la")),
