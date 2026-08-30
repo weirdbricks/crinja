@@ -21,17 +21,52 @@ items. See PATTERN2_AUDIT.md for the Pattern 2 methodology.
 
 ## Pattern 1 — recursive re-templating (crystal-ansible)
 
-- [ ] P1.1 `resolve_simple` re-render gap (`traefik_install_ver` class:
-  `{% if %}...{% endif %}` stored as plain var, reached bare or as
-  sub-expression of `include_tasks: 'v{{ x }}.yml'`).
-  MUST design strict/undefined semantics first; the three specs above
-  are the acceptance criteria. Do NOT copy from `resolve_nested`.
-- [ ] P1.2 Structural cleanup: once P1.1 lands, audit the per-call-site
-  `rerender_if_templated` calls (expression_evaluator bare-variable
-  fallback, resolve_nested base, default() args, loop sources) and
-  retire the ones the choke point makes redundant. Add a guard spec
-  that a NEW resolution path fails loudly (or is caught by a parity
-  test) if it returns raw `{{ }}` text.
+- [x] P1.1 `resolve_simple` re-render gap (`traefik_install_ver` class).
+  FIXED 2026-08-30 — but the ROOT CAUSE turned out to be something else
+  entirely, which is why the prescribed approach ("design strict/undefined
+  semantics for a `resolve_simple` re-render") would have been wrong
+  (and why the first attempt, at that layer, broke the three reverted-
+  attack specs). Two actual causes, both fixed:
+  1. `variable_substitutor.cr#scan_block_tag_refs` matched a
+     dotted/bracketed chain (`SCAN_STRICT_BLOCK_TAG_REF`) and checked it
+     as a FLAT `@vars` key (`has_key?("traefik_ver.major")`), which never
+     exists — so every `{% if %}` condition using ordinary attribute
+     access on a defined dict/list was "undefined" under strict.
+     `CrinjaRenderer.convert_var` asks exactly that probe
+     (`unresolvable_template?`) before handing Crinja a value → the whole
+     variable became `Crinja::Undefined` → a bare
+     `{{ traefik_install_ver }}` rendered the literal sentinel and
+     `include_tasks: 'v{{ ... }}.yml'` became `vundefined.yml`. Fixed by
+     resolving the chain by its ROOT (matches ansible-core 2.19.4: a
+     defined root + missing attribute is a different error class there).
+  2. `crinja_renderer.cr#rerender_string_value` only re-rendered values
+     containing `{{`; a pure `{% %}`-block value reached Crinja's context
+     raw. Invisible for a bare `{{ v }}` (the outer re-pass loop saves
+     that shape) but fatal as a FILTER-CHAIN HEAD (`{{ v | upper }}`
+     uppercased the tag keywords, so no later pass could parse them) and
+     as a `default()` argument. Fixed: the re-render now fires for
+     `{%`/`{#` too.
+  `resolve_simple` itself stays deliberately RAW — it is the strict
+  chain-walker's lookup primitive (`raise_if_strict_undefined` walks the
+  chain through it and must still raise on the innermost missing name),
+  which is exactly the interaction the original design note worried
+  about. The three reverted-attack specs pass unchanged.
+  Specs: `spec/unit/blocktag_dotted_attr_strict_spec.cr` (12).
+- [x] P1.2 Structural cleanup / guard. Superseded in form, delivered in
+  substance: the audit found that the "centralized re-render layer" was
+  the wrong abstraction for this bug class — the per-call-site
+  `rerender_if_templated` calls are load-bearing and `resolve_simple`
+  must stay raw (see P1.1). What P1.2 prescribed as the deliverable — a
+  guard that makes a resolution path returning raw `{{ }}`/`{% %}` text
+  fail loudly — landed as
+  `spec/unit/blocktag_value_resolution_parity_spec.cr`: a parity table
+  driving a BLOCK-TAG-valued variable through every known resolution
+  path (bare / dotted / indexed / filter-chain head / default() arg /
+  ternary branch / inside-a-larger-literal-string / include_tasks
+  filename shape under strict), plus a strict-negative asserting a
+  genuinely-missing root still raises. The audit itself found and fixed
+  one more real call-site gap (`rerender_string_value`'s `{{`-only
+  guard, P1.1 cause #2). Specs: 9.
 
 ## Pattern 2 — missing Jinja/Ansible surface (implement in crystal-ansible
 `src/crystal_play/jinja_filters.cr` unless noted)
