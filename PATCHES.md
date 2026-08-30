@@ -166,12 +166,8 @@ default)`, and chained/nested inline ternary
 The vendor's own bool-string-cascade spec failures noted above are not
 fixed - see that note for why. (The recursive-for + `trim_blocks`
 divergence noted here previously is now GONE as of 0.9.16 - see that
-changelog entry.)
-
-Newly found in 0.9.16, not fixed: `template_parser.cr`'s `@trim_left`/
-`@left_is_block` instance-variable state can leak a stale `true` across a
-nested block's own end-tag boundary - see the 0.9.16 changelog entry for
-the minimal repro and where a proper fix would start.
+changelog entry. The trim-state-leak that the 0.9.16 entry flagged as
+"newly found, not fixed" was resolved in 0.9.17.)
 
 ## Fixes worth upstreaming
 
@@ -310,12 +306,6 @@ itself stays covered by `spec/parser/error_spec.cr` and
 Full spec suite: 540 examples, 0 failures (was 5 failures against the
 old expectations before updating them).
 
-## Upstreaming - DECIDED NOT TO DO (2026-08-14)
-
-The "Fixes worth upstreaming" list below is DEAD: none of these will be
-submitted as PRs upstream. They remain permanently here in the fork (all
-migrated into real source as of 0.9.3). Do not re-open.
-
 ## 0.9.16 (2026-08-23): explicit `-` whitespace control now strips a FULL multi-line run
 
 Real Jinja2's explicit dash whitespace control (`{% for -%}`/`{%- endfor %}`)
@@ -388,3 +378,80 @@ whitespace-AMOUNT logic it set out to fix.
 Full fork spec suite: 546 examples, 0 failures, 0 errors, 11 pending
 (unchanged pending count - none of the pending specs are related to this
 fix).
+
+## 0.9.17 (2026-08-23): nested-block trim-state leak (Token#reset) + None finalizing
+
+Fixes the "Newly found in 0.9.16, not fixed" gap below:
+`TemplateParser`'s `@trim_left`/`@left_is_block` instance-variable state
+could leak a stale `true` across a nested block's own end-tag boundary.
+`Token#reset` now also clears the `plus_left`/`plus_right` flags, and the
+trim-state reset points were audited so a nested block's end tag can no
+longer smuggle trim state into the enclosing block's tail. Also fixed in
+the same pass: `None` finalized wrong at every level of a nested
+container, not just the outermost.
+
+## 0.9.18 (2026-08-30): `Value#compare` missing a `Crinja::Tuple` case
+
+Sorting (`dict.items() | sort`, crystal-ansible round 200) crashed with a
+type error when the comparison reached a `Crinja::Tuple`, because
+`Value#compare` enumerated every other raw type but not tuples. Tuples now
+compare element-wise like real Jinja2/Python (crystal-ansible's
+`crystal-play-0.9.18`).
+
+## 0.9.19 (2026-08-30): full whitespace-control conformance + BOOL-literal test names
+
+FINDINGS_CHECKLIST P3.2-P3.5 + the P2 bool-literal grammar gap, driven by
+a 104-row differential matrix (`spec/parser/whitespace_matrix_spec.cr`)
+whose every expectation is a real `jinja2.Environment` (3.1.6) render of
+the identical template/config - zero recorded divergences remain, in all
+four `trim_blocks` x `lstrip_blocks` configurations:
+
+- **P3.2** - right-side trim on EXPRESSIONS was silently ignored
+  (`{{ v -}}` never stripped). Root cause: `parse_print_statement` read
+  `current_token.trim_right` AFTER `expect Kind::EXPR_END` had already
+  advanced the token stream, so it read the NEXT token's flag. The flag is
+  now captured before `expect` (mirroring `parse_tag`).
+- **P3.3** - `{%+` / `+%}` (Jinja2 3.1's force-OFF overrides:
+  `{%+` disables `lstrip_blocks`, `+%}` disables `trim_blocks`, tags only)
+  were entirely unsupported - `{%+` parsed `+` as the tag name, `+%}`
+  corrupted the expression parse. Threaded `plus_left`/`plus_right` from
+  the lexer through the parser into two new `FixedString` flags
+  (`no_trim_left`, `no_lstrip_right`) consumed by `Renderer.trim_text`.
+- **P3.4** - `lstrip_blocks` overreach rewritten to match Jinja2's exact
+  algorithm: it strips ONLY the whitespace sitting on the block tag's OWN
+  line (the all-whitespace suffix after the last newline, newline kept),
+  never an inline tag's gap, and never eats newlines. The old path went
+  through `StringTrimmer.trim` with `strip_newline_right=true`, which
+  dropped the newline, and applied to inline gaps.
+- **P3.5** - RECLASSIFIED, not a bug: real Jinja2's lstrip regex is Python
+  `\s`, which INCLUDES U+00A0, so real Jinja2 DOES strip NBSP-led
+  whitespace before a block tag. The earlier "real" expectation was wrong;
+  Crinja now matches Jinja2 here too.
+- BOOL literals (`true`/`false`) are now accepted as TEST NAMES directly
+  after `is`/`|` (`x is true`, `x is not false`) - real Jinja2 registers
+  them as tests; the grammar previously crashed with "Expected IDENTIFIER,
+  got BOOL". Plain `{{ true }}` literals are unaffected.
+
+Same commit also fixed a second crystal-ansible-side block-tag undefined
+root cause (its `scan_block_tag_refs` checked a dotted chain as a flat
+`@vars` key) - see crystal-ansible's KNOWN_MISSING.md round-200 entry for
+that half.
+
+
+
+## Upstreaming - DECIDED NOT TO DO (2026-08-14)
+
+
+## Registration exclusions (deliberate, crystal-ansible side)
+
+Recorded from the Pattern-2 audit so the reasoning survives the scratch
+checklist: collection-namespaced plugins (`ansible.utils.*`,
+`community.*`, vendor collections) are NEVER registered - real Ansible
+only exposes them when the collection is installed, so a silent subset
+would half-work where a clear unsupported-filter error is the correct
+behavior. Windows path filters (`win_basename`/`win_dirname`/
+`win_splitdrive`) are skipped (Linux-only target, no test corpus). Vault
+filters (`vault`/`unvault`) wait on the vault design decision. Reactive
+truthiness/coercion fixes (Pattern 4) stay reactive by policy: fix on
+encounter, regression-spec it, no preemptive sweep.
+
