@@ -455,3 +455,20 @@ filters (`vault`/`unvault`) wait on the vault design decision. Reactive
 truthiness/coercion fixes (Pattern 4) stay reactive by policy: fix on
 encounter, regression-spec it, no preemptive sweep.
 
+### Trivial alias gotchas (worth recording so nobody relitigates them)
+
+These were each a one-character add but had a non-obvious "which one is
+right" question that real Jinja2 settled:
+
+- `d` aliases `default` (NOT `dict` - real Jinja2's `d` is `default`'s
+  one-letter form). The audit initially assumed `dict`; corrected to
+  `default` after checking real Jinja2 3.1.6.
+- `count` aliases `length` (Jinja2's built-in sequence-length filter is
+  `length`; `count` is Jinja's synonym, not a custom addition).
+- `e` aliases `escape` (Jinja2's standard escape filter).
+- `items` aliases `dict2items` (the Jinja2 idiom for iterating dicts
+  pair-wise; `items` is the real-Jinja synonym).
+- `root` is a path filter returning the filesystem root prefix (`/` for
+  absolute paths, `""` for relative); it does NOT return the dict's
+  "root" element or any other interpretation.
+
