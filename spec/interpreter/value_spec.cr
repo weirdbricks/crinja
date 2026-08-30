@@ -5,6 +5,21 @@ describe Crinja::Value do
     Crinja::Tuple.new("foo", 1).should eq Crinja::Tuple.new("foo", 1)
   end
 
+  it "sorts a list of tuples element-wise, like Python's own tuple ordering" do
+    # Value#compare had no branch for Crinja::Tuple at all, so a
+    # Tuple-vs-Tuple comparison (needed to sort dict.items(), a list of
+    # 2-tuples) fell to the generic "cannot compare" TypeError -
+    # found via crystal-play's own Oefenweb.bash template:
+    # `{% for key, value in bash_aliases.items() | sort %}`.
+    unsorted = [
+      Crinja::Value.new(Crinja::Tuple.new("ll", "ls -la")),
+      Crinja::Value.new(Crinja::Tuple.new("la", "ls -A")),
+    ]
+    sorted = unsorted.sort
+    sorted[0].raw.as(Crinja::Tuple)[0].should eq Crinja::Value.new("la")
+    sorted[1].raw.as(Crinja::Tuple)[0].should eq Crinja::Value.new("ll")
+  end
+
   describe "raw_each" do
     it "array" do
       a = [1, 2, 3]

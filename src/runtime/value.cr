@@ -487,6 +487,29 @@ struct Crinja::Value
       else
         raise TypeError.new "Cannot compare Array with #{b.class}"
       end
+    elsif a.is_a?(Crinja::Tuple)
+      # Python tuples compare element-wise (lexicographically), the same
+      # semantics Crinja::Tuple's own `<=>` already implements by
+      # delegating to its backing Array - this method just never routed
+      # a Tuple-vs-Tuple pair into it, falling through to the generic
+      # "cannot compare" error instead. Found via crystal-play's own
+      # Oefenweb.bash template: `{% for key, value in bash_aliases.
+      # items() | sort %}` (real Jinja2 sorts a dict's `.items()` - a
+      # list of 2-tuples - lexicographically by key, then value, on
+      # ties; this raised "cannot compare Crinja::Tuple with
+      # Crinja::Tuple" instead).
+      if b.is_a?(Crinja::Tuple)
+        # Not `a <=> b` directly: Tuple's own `delegate :<=>, to: @data`
+        # forwards the OTHER Tuple unmodified as the argument to
+        # Array(Value)#<=>, which requires another Array, not a Tuple -
+        # a delegate that was apparently never actually exercised before
+        # this fix. Comparing the two backing arrays via `to_a`
+        # (Indexable's own method, Tuple already includes it) gets the
+        # real element-wise semantics instead.
+        a.to_a <=> b.to_a
+      else
+        raise TypeError.new "Cannot compare Tuple with #{b.class}"
+      end
     elsif a.is_a?(Bool) || b.is_a?(Bool)
       raise TypeError.new "Cannot compare Bool value"
     elsif a.is_a?(Number) && b.is_a?(Number)
