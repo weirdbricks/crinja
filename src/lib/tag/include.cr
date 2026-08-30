@@ -30,7 +30,7 @@ class Crinja::Tag::Include < Crinja::Tag
     end
 
     # FIXME
-    source = source.not_nil!
+    source = source.not_nil! # ameba:disable Lint/NotNil
 
     if source.iterable?
       include_name = source.map &.to_s

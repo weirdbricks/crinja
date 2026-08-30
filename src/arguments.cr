@@ -27,7 +27,7 @@ struct Crinja::Arguments
   def [](name : String) : Value
     if kwargs.has_key?(name)
       kwargs[name]
-    elsif index = defaults.index { |k, v| k == name }
+    elsif index = defaults.index { |k, _| k == name }
       if varargs.size > index
         varargs[index]
       else
@@ -64,7 +64,7 @@ struct Crinja::Arguments
   end
 
   def to_h
-    [@kwargs.keys, @defaults.keys].flatten.uniq.each_with_object(Hash(String, Value).new) do |key, hash|
+    [@kwargs.keys, @defaults.keys].flatten.uniq!.each_with_object(Hash(String, Value).new) do |key, hash|
       hash[key] = self[key]
     end
   end
@@ -74,7 +74,7 @@ struct Crinja::Arguments
   end
 
   def is_set?(name : String)
-    kwargs.has_key?(name) || (index = defaults.index { |k, v| k == name }) && varargs.size > index
+    kwargs.has_key?(name) || (index = defaults.index { |k, _| k == name }) && varargs.size > index
   end
 
   def default(name : Symbol)

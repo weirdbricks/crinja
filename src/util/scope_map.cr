@@ -25,7 +25,7 @@ class Crinja::Util::ScopeMap(K, V)
 
     return parent.has_value?(value) unless parent.nil?
 
-    return false
+    false
   end
 
   def [](key : K)

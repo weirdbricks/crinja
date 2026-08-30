@@ -215,7 +215,7 @@ struct Crinja::Value
     when ::Iterator
       object
     when String
-      object.each_char.map { |char| char.to_s }
+      object.each_char.map(&.to_s)
     when StrictUndefined, Undefined
       # Real Jinja2 raises UndefinedError when iterating over ANY
       # Undefined value, not just the strict variant - `{% for x in
@@ -391,8 +391,8 @@ struct Crinja::Value
 
     begin
       @raw.as(T)
-    rescue exc : TypeCastError
-      raise Crinja::Error.new("Unexpected type in Crinja value", cause: exc)
+    rescue e : TypeCastError
+      raise Crinja::Error.new("Unexpected type in Crinja value", cause: e)
     end
   end
 
@@ -631,8 +631,8 @@ struct Crinja::Value
   # Returns true if
   def sameas?(other)
     raw = @raw
-    if (raw.is_a?(Reference))
-      if ((oraw = other.raw).is_a?(Reference))
+    if raw.is_a?(Reference)
+      if (oraw = other.raw).is_a?(Reference)
         raw.same?(oraw)
       else
         false

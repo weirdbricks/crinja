@@ -31,9 +31,7 @@ class Crinja::Renderer
     end
 
     def value : String
-      raise "block placeholder not resolved #{name}" unless resolved?
-
-      @output.not_nil!
+      @output || raise "block placeholder not resolved #{name}"
     end
 
     def value(io)
@@ -45,8 +43,8 @@ class Crinja::Renderer
     property nodes : Array(Output) = [] of Output
     property blocks : Array(BlockOutput) = [] of BlockOutput
 
-    def <<(output)
-      nodes << output.not_nil!
+    def <<(output : Output)
+      nodes << output
 
       blocks << output if output.is_a?(BlockOutput)
     end

@@ -105,8 +105,8 @@ class Crinja
       end
       unless node.kwargs.empty?
         nl
-        node.kwargs.each do |kw, arg|
-          open("kwarg") { @io << " name=\"" << kw << "\"" }
+        node.kwargs.each do |keyword, arg|
+          open("kwarg") { @io << " name=\"" << keyword << "\"" }
           nl
           arg.accept(self)
           close "kwarg"

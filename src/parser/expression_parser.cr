@@ -41,7 +41,7 @@ class Crinja::Parser::ExpressionParser
     case current_token.kind
     when expected_end_token
       # there is no content in this expression
-      return AST::Empty.new
+      AST::Empty.new
     else
       expression = parse_expression
 
@@ -125,6 +125,7 @@ class Crinja::Parser::ExpressionParser
   parse_operator :logical_and, :equal_not, AND do
     AST::BinaryExpression.new operator, left, right
   end
+
   # `NOT` deliberately excluded from this level's own operator set - see
   # `parse_less_greater`'s own comment just below for why (a bare `not`
   # is never a valid binary comparator on its own; leaving it out here is
@@ -190,6 +191,7 @@ class Crinja::Parser::ExpressionParser
       return left
     end
   end
+
   parse_operator :tilde, :add_sub, TILDE do
     AST::BinaryExpression.new operator, left, right
   end
@@ -381,7 +383,7 @@ class Crinja::Parser::ExpressionParser
         else
           end_location = current_token.location
           expect Kind::RIGHT_BRACKET
-          expression = AST::IndexExpression.new(expression, slice_start.not_nil!).at(expression.location_start, end_location)
+          expression = AST::IndexExpression.new(expression, slice_start.not_nil!).at(expression.location_start, end_location) # ameba:disable Lint/NotNil
         end
       when Kind::POINT
         next_token
@@ -514,7 +516,7 @@ class Crinja::Parser::ExpressionParser
       unexpected_token value: "an expression"
     end
 
-    return node
+    node
   end
 
   private def parse_identifier
@@ -541,7 +543,7 @@ class Crinja::Parser::ExpressionParser
 
     end_location = exps.last?.try(&.location_end) || start_location
 
-    return AST::ExpressionList.new(exps).at(start_location, end_location)
+    AST::ExpressionList.new(exps).at(start_location, end_location)
   end
 
   def parse_keyword_list(end_tokens : Array(Kind) = [Kind::EOF], keyword_separator_token : Kind = Kind::KW_ASSIGN, keyword = nil)
@@ -584,7 +586,7 @@ class Crinja::Parser::ExpressionParser
 
     end_location = current_token.location
     expect Kind::RIGHT_BRACKET
-    return AST::ArrayLiteral.new(exps.children).at(start_location, end_location)
+    AST::ArrayLiteral.new(exps.children).at(start_location, end_location)
   end
 
   private def parse_dict_literal
@@ -615,7 +617,7 @@ class Crinja::Parser::ExpressionParser
 
     expect Kind::RIGHT_CURLY
 
-    return AST::DictLiteral.new(hash).at(start_location, end_location)
+    AST::DictLiteral.new(hash).at(start_location, end_location)
   end
 
   private def parse_identifier_list

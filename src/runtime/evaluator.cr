@@ -38,10 +38,10 @@ class Crinja::Evaluator
                               }})
 
       {{ yield }}
-    rescue exc : Crinja::Error
+    rescue e : Crinja::Error
       # Add location info to runtime exception.
-      exc.at(expression) unless exc.has_location?
-      raise exc
+      e.at(expression) unless e.has_location?
+      raise e
     end
   end
 
@@ -96,7 +96,7 @@ class Crinja::Evaluator
     end
 
     # FIXME: Shouldn't be needed.
-    callable = callable.not_nil!
+    callable = callable.not_nil! # ameba:disable Lint/NotNil
 
     argumentlist = evaluate(expression.argumentlist).as(Array(Value))
 
@@ -183,7 +183,7 @@ class Crinja::Evaluator
 
     begin
       value = Resolver.resolve_attribute(member, object)
-    rescue exc : UndefinedError
+    rescue e : UndefinedError
       raise UndefinedError.new(name_for_expression(expression))
     end
 
@@ -202,12 +202,12 @@ class Crinja::Evaluator
 
     begin
       value = Resolver.resolve_attribute(argument, object)
-    rescue exc : UndefinedError
+    rescue e : UndefinedError
       raise UndefinedError.new(name_for_expression(expression))
     end
 
     # FIXME
-    value = value.not_nil!
+    value = value.not_nil! # ameba:disable Lint/NotNil
 
     if value.undefined?
       value.as_undefined.name = name_for_expression(expression)

@@ -8,10 +8,10 @@ module Crinja::Parser
       "true"  => Kind::BOOL,
       "false" => Kind::BOOL,
       "none"  => Kind::NONE,
-    }.tap do |h|
+    }.tap do |hash|
       # because `True` equaling to false causes confusion, it is possible to write these constants
       # in camel case. However lower case is preferred.
-      h.each { |k, v| h[k.camelcase] = v }
+      hash.each { |key, value| hash[key.camelcase] = value }
     end
 
     getter config, stream

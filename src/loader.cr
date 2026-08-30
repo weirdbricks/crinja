@@ -84,10 +84,10 @@ abstract class Crinja::Loader
     end
 
     def list_templates
-      searchpaths.map do |path|
+      searchpaths.flat_map do |path|
         range = (path.size + 1)..-1
         list_templates(path).map { |name| name[range] }
-      end.flatten
+      end
     end
 
     private def list_templates(path, list = [] of String)
@@ -191,7 +191,7 @@ abstract class Crinja::Loader
     end
 
     def list_templates
-      choices.map(&.list_templates).flatten.uniq.sort
+      choices.flat_map(&.list_templates).uniq!.sort!
     end
   end
 end

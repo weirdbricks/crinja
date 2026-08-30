@@ -40,7 +40,7 @@ module Crinja::Resolver
     if object.responds_to?(:crinja_call) && (callable = object.crinja_call(name))
       return ->(arguments : Arguments) do
         # wrap the return value of the proc as a Value
-        Value.new callable.not_nil!.call(arguments)
+        Value.new callable.not_nil!.call(arguments) # ameba:disable Lint/NotNil
       end.as(Callable::Proc)
     end
   end
@@ -150,7 +150,7 @@ module Crinja::Resolver
 
     if callable.callable?
       # FIXME: Explicit cast should not be necessary.
-      return callable.as_callable.as(Callable | Callable::Proc)
+      callable.as_callable.as(Callable | Callable::Proc)
     else
       raise TypeError.new(callable, "`#{identifier.inspect}` is not callable")
     end

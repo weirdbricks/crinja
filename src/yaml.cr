@@ -16,6 +16,6 @@ struct YAML::Any
       result = self[attr.raw]?
     end
     result ||= Crinja::Undefined.new(attr.to_s)
-    return Crinja::Value.new(result)
+    Crinja::Value.new(result)
   end
 end

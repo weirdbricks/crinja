@@ -162,7 +162,7 @@ class Crinja
 
     yield @context
   ensure
-    @context = former_scope.not_nil!
+    @context = former_scope.not_nil! # ameba:disable Lint/NotNil
   end
 
   # Executes the block inside a new sub-context with optional local scoped *bindings*.
@@ -174,8 +174,8 @@ class Crinja
       ctx.merge! bindings
     end
 
-    with_scope(ctx) do |c|
-      yield c
+    with_scope(ctx) do |scope|
+      yield scope
     end
   end
 

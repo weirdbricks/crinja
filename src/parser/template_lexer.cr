@@ -138,8 +138,8 @@ class Crinja::Parser::TemplateLexer < Crinja::Parser::BaseLexer
 
   def peek_string?(string, offset = 1)
     offset = peek_for_whitespace_offset(offset)
-    string.chars.each_with_index(offset) do |c, i|
-      return false if c != peek_char(i)
+    string.chars.each_with_index(offset) do |char, i|
+      return false if char != peek_char(i)
     end
     true
   end
@@ -233,11 +233,11 @@ class Crinja::Parser::TemplateLexer < Crinja::Parser::BaseLexer
 
         return true
       end
-      return false
+      false
     when Char::ZERO
       raise "Unterminated #{@stack.last.name}"
     else
-      return false
+      false
     end
   end
 end

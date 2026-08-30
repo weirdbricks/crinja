@@ -6,7 +6,7 @@ env = Crinja.new
 env.filters[:dateformat] = Crinja.filter { target.as_time.to_s("%Y-%m-%d") }
 env.loader = Crinja::Loader::FileSystemLoader.new(File.join(FileUtils.pwd, "crinja"))
 
-users = ["John Doe", "Jane Doe", "Peter Somewhat"].map { |n| User.new(n) }
+users = ["John Doe", "Jane Doe", "Peter Somewhat"].map { |name| User.new(name) }
 articles = (0..20).map { |i| Article.new(i, users.sample) }
 
 @[Crinja::Attributes]

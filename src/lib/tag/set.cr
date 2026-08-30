@@ -95,8 +95,8 @@ class Crinja::Tag::Set < Crinja::Tag
       args.next_token
 
       items = env.evaluate(args.parse_expression).each.to_a
-      targets.each_with_index do |target_name, i|
-        env.context[target_name] = items[i]? || Crinja::UNDEFINED
+      targets.each_with_index do |target_var, i|
+        env.context[target_var] = items[i]? || Crinja::UNDEFINED
       end
 
       args.close
@@ -104,7 +104,7 @@ class Crinja::Tag::Set < Crinja::Tag
       args.parse_keyword_list.each do |identifier, expr|
         env.context[identifier.name] = env.evaluate(expr)
       end
-      # raise TemplateSyntaxError.new(tag_node, "Tag `set` requires either a single name argument (set block) or at least one assignment", exc)
+      # raise TemplateSyntaxError.new(tag_node, "Tag `set` requires either a single name argument (set block) or at least one assignment", e)
 
       args.close
     end

@@ -58,14 +58,14 @@ module Crinja::Parser
     def initialize(@line : Int32 = 1, @column : Int32 = 1, @pos : Int32 = 0)
     end
 
-    def +(string : String)
-      self.pos += string.size
-      lines = string.split('\n')
+    def +(other : String)
+      self.pos += other.size
+      lines = other.split('\n')
       self.line += lines.size - 1
       if lines.size > 1
         self.column = lines.last.size
       else
-        self.column += string.size
+        self.column += other.size
       end
       self
     end

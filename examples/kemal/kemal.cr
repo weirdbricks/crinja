@@ -17,8 +17,8 @@ get "/source/*" do |env|
 
   begin
     source_renderer.render(crinja.get_template(path))
-  rescue exc : Crinja::TemplateNotFoundError
-    logger.warn { exc.message }
+  rescue e : Crinja::TemplateNotFoundError
+    logger.warn { e.message }
     env.response.respond_with_status :not_found
   end
 end
@@ -37,8 +37,8 @@ get "/*" do |env|
       },
     }
     template.render(vars)
-  rescue exc : Crinja::TemplateNotFoundError
-    logger.warn { exc.message }
+  rescue e : Crinja::TemplateNotFoundError
+    logger.warn { e.message }
     env.response.respond_with_status :not_found
   end
 end

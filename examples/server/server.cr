@@ -17,8 +17,6 @@ class Crinja::Server
       server = Crinja::Server.new
 
       OptionParser.parse do |opts|
-        path = Dir.current
-
         opts.on("--version", "") { puts Crinja::VERSION; exit }
         opts.on("-v", "--verbose", "") { server.env.logger.level = ::Log::Severity::Debug }
         opts.on("-q", "--quiet", "") { server.env.logger.level = ::Log::Severity::Warn }

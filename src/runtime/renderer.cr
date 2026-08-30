@@ -30,10 +30,10 @@ class Crinja::Renderer
                         end).join(" | ").id
                       }})
       {{ yield }}
-    rescue exc : Crinja::Error
+    rescue e : Crinja::Error
       # Add location info to runtime exception.
-      exc.at(node) unless exc.has_location?
-      raise exc
+      e.at(node) unless e.has_location?
+      raise e
     end
   end
 

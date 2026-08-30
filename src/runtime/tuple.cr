@@ -21,8 +21,8 @@ class Crinja::Tuple
     end
   {% end %}
 
-  def +(item : Value)
-    Crinja::Tuple.from(@data, item)
+  def +(other : Value)
+    Crinja::Tuple.from(@data, other)
   end
 
   def +(other : Crinja::Tuple)

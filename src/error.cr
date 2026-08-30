@@ -21,7 +21,7 @@ module Crinja::SourceAttached
 
       message_location(io)
 
-      if template = self.template
+      if self.template
         io.puts
         io.puts
         highlight_source_code(io)

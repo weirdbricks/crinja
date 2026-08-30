@@ -16,6 +16,9 @@ targets:
     main: src/cli.cr
 
 development_dependencies:
+  ameba:
+    github: crystal-ameba/ameba
+    version: ~> 1.6.4
   diff:
     github: MakeNowJust/crystal-diff
   baked_file_system:

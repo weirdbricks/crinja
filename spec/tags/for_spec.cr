@@ -96,10 +96,10 @@ describe Crinja::Tag::For do
         {"a" => 2, "b" => [{"a" => 1}, {"a" => 2}]},
         {"a" => 3, "b" => [{"a" => "a"}]},
       ]}, trim_blocks: true).should eq("[1<[1][2]>][2<[1][2]>][3<[a]>]")
-      # Round170: `-%}`/`{%-` trim markers are now honored inside a
-      # RECURSIVE for-body re-render too (previously they weren't, leaving
-      # the source newlines - see git history) - this now matches real
-      # Python jinja2 exactly, verified directly.
+    # Round170: `-%}`/`{%-` trim markers are now honored inside a
+    # RECURSIVE for-body re-render too (previously they weren't, leaving
+    # the source newlines - see git history) - this now matches real
+    # Python jinja2 exactly, verified directly.
   end
 
   it "recursive_depth0" do
@@ -117,8 +117,8 @@ describe Crinja::Tag::For do
         {"a" => 2, "b" => [{"a" => 1}, {"a" => 2}]},
         {"a" => 3, "b" => [{"a" => 'a'}]},
       ]}, trim_blocks: true).should eq("[0:1<[1:1][1:2]>][0:2<[1:1][1:2]>][0:3<[1:a]>]")
-      # Round170: now matches real Python jinja2 exactly - see the
-      # "recursive" test's note.
+    # Round170: now matches real Python jinja2 exactly - see the
+    # "recursive" test's note.
   end
 
   it "recursive_depth" do
@@ -135,8 +135,8 @@ describe Crinja::Tag::For do
         {"a" => 2, "b" => [{"a" => 1}, {"a" => 2}]},
         {"a" => 3, "b" => [{"a" => "a"}]},
       ]}, trim_blocks: true).should eq("[1:1<[2:1][2:2]>][1:2<[2:1][2:2]>][1:3<[2:a]>]")
-      # Round170: now matches real Python jinja2 exactly - see the
-      # "recursive" test's note.
+    # Round170: now matches real Python jinja2 exactly - see the
+    # "recursive" test's note.
   end
 
   it "looploop" do

@@ -16,9 +16,9 @@ module Crinja::Filter
     end
 
     if arguments["by"].to_s == "value"
-      array = array.sort { |a, b| compare.call(a[1], b[1]) }
+      array = array.sort { |key1, key2| compare.call(key1[1], key2[1]) }
     else
-      array = array.sort { |a, b| compare.call(a[0], b[0]) }
+      array = array.sort { |key1, key2| compare.call(key1[0], key2[0]) }
     end
 
     array
@@ -39,16 +39,16 @@ module Crinja::Filter
       attribute = arguments["attribute"].as_s
     end
 
-    array = array.sort do |a, b|
+    array = array.sort do |key1, key2|
       unless attribute.nil?
-        a = a[attribute.not_nil!]
-        b = b[attribute.not_nil!]
+        key1 = key1[attribute.not_nil!] # ameba:disable Lint/NotNil
+        key2 = key2[attribute.not_nil!] # ameba:disable Lint/NotNil
       end
 
-      if !case_sensitive && a.string? && b.string?
-        a.as_s.compare(b.as_s, true)
+      if !case_sensitive && key1.string? && key2.string?
+        key1.as_s.compare(key2.as_s, true)
       else
-        a <=> b
+        key1 <=> key2
       end
     end
 

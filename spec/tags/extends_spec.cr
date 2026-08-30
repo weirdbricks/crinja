@@ -138,8 +138,8 @@ describe Crinja::Tag::Extends do
     env = Crinja.new
     env.loader = loader
     template = env.get_template("child")
-    [1, 2].each do |m|
-      template.render({"master" => "master%d" % m}).should eq "MASTER%dCHILD" % m
+    [1, 2].each do |idx|
+      template.render({"master" => "master%d" % idx}).should eq "MASTER%dCHILD" % idx
     end
   end
 

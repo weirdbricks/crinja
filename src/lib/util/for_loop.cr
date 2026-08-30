@@ -157,6 +157,7 @@ class Crinja::Tag::For::ForLoop
               else
                 super(attr)
               end
+      value
     end
 
     @[Crinja::Attribute]

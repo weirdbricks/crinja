@@ -37,7 +37,7 @@ class Crinja
     end
 
     private def print_open_token_tag(token)
-      @io << %Q(<span class="token token--#{token.kind.to_s.downcase}" title="#{token.kind.to_s} [#{token.line}:#{token.column}">)
+      @io << %Q(<span class="token token--#{token.kind.to_s.downcase}" title="#{token.kind} [#{token.line}:#{token.column}">)
     end
 
     private def print_close_token_tag

@@ -172,18 +172,18 @@ class Crinja::Parser::TemplateParser
     if tag.is_a?(Tag::EndTag)
       node = AST::EndTagNode.new(name_token.value, arguments).at(start_location, end_location)
 
-      return node
+      node
     else
       block = AST::NodeList.new([] of AST::TemplateNode, true)
 
       node = AST::TagNode.new(name_token.value, arguments, block, nil).at(start_location, end_location)
 
       if tag.has_block?(node)
-        @stack << {node, tag.end_tag.not_nil!}
+        @stack << {node, tag.end_tag.not_nil!} # ameba:disable Lint/NotNil
         node.block = parse_node_list(true)
       end
 
-      return node
+      node
     end
   end
 

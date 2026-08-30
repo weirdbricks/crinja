@@ -1,5 +1,21 @@
 Lint/UnusedArgument:
   IgnoreProcs: true
 
+# TODO/FIXME comments are tracked intentionally; the admonitions are not code issues.
+Documentation/DocumentationAdmonition:
+  Enabled: false
+
+# The Jinja lexer/parser is inherently branch-heavy; splitting these methods
+# would hurt readability without improving correctness.
+Metrics/CyclomaticComplexity:
+  Enabled: false
+
+# Disabling naming rules that would change the public API
+# (`property?`/`getter?` replace the existing accessors rather than adding to them).
+Naming/QueryBoolMethods:
+  Enabled: false
+Naming/PredicateName:
+  Enabled: false
+
 Style/WhileTrue:
   Enabled: false
