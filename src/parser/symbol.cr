@@ -8,6 +8,7 @@ module Crinja::Parser::Symbol
   EXPR_END        = '}'
   NEWLINE         = '\n'
   TRIM_WHITESPACE = '-'
+  PLUS            = '+'
 
   PIPE = '|'
 

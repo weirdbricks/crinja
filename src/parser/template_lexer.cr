@@ -101,6 +101,12 @@ class Crinja::Parser::TemplateLexer < Crinja::Parser::BaseLexer
         @token.value += current_char
         @token.trim_left = true
         next_char
+      elsif current_char == Symbol::PLUS && @token.kind == Kind::TAG_START
+        # `{%+` - Jinja2's explicit "do NOT apply lstrip_blocks" override
+        # (only valid on block tags, not on `{{` expressions / `{#` notes).
+        @token.value += current_char
+        @token.plus_left = true
+        next_char
       end
     else
       @token.kind = Kind::FIXED
@@ -194,6 +200,7 @@ class Crinja::Parser::TemplateLexer < Crinja::Parser::BaseLexer
   # check if current scope closes
   def check_for_end(current_scope)
     trim_whitespace = false
+    plus_whitespace = false
 
     whitespace = peek_for_whitespace_offset(0)
 
@@ -205,6 +212,12 @@ class Crinja::Parser::TemplateLexer < Crinja::Parser::BaseLexer
       trim_whitespace = true
       end_type = peek_char(whitespace + lookahead)
       lookahead += 1
+    elsif end_type == Symbol::PLUS
+      # `+%}` - force-disable trim_blocks on the right. Only meaningful for tags
+      # (`+}}` is not a real Jinja2 form).
+      plus_whitespace = true
+      end_type = peek_char(whitespace + lookahead)
+      lookahead += 1
     end
 
     case end_type
@@ -212,6 +225,7 @@ class Crinja::Parser::TemplateLexer < Crinja::Parser::BaseLexer
       if Symbol::POSTFIX == peek_char(whitespace + lookahead)
         @token.value = String.build do |io|
           io << Symbol::TRIM_WHITESPACE if trim_whitespace
+          io << Symbol::PLUS if plus_whitespace && end_type == Symbol::TAG
           io << end_type << Symbol::POSTFIX
         end
 
@@ -229,6 +243,10 @@ class Crinja::Parser::TemplateLexer < Crinja::Parser::BaseLexer
 
         if trim_whitespace
           @token.trim_right = true
+        end
+
+        if plus_whitespace && end_type == Symbol::TAG
+          @token.plus_right = true
         end
 
         return true

@@ -187,5 +187,7 @@ module Crinja::AST
     trim_left : Bool,
     left_is_block : Bool,
     trim_right : Bool,
-    right_is_block : Bool
+    right_is_block : Bool,
+    no_trim_left : Bool,
+    no_lstrip_right : Bool
 end

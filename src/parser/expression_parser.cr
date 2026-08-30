@@ -226,6 +226,17 @@ class Crinja::Parser::ExpressionParser
 
         identifier = if_token(Kind::NONE) do
           AST::IdentifierLiteral.new(current_token.value).at(current_token.location)
+        end || if current_token.kind == Kind::BOOL && (current_token.value == "true" || current_token.value == "false")
+          # Real Jinja2 registers `true`/`false` (and `none`) as TESTS,
+          # so `x is true` / `x is not false` are valid templates there.
+          # Crinja's grammar only accepted an IDENTIFIER in the test-name
+          # slot, so the BOOL literal token crashed the render with
+          # "Expected IDENTIFIER, got BOOL" before the (correctly
+          # registered) boolean-identity tests could ever run. Accept the
+          # literal token as the test NAME here - only in the position
+          # directly after `is`/`|`, so plain `{{ true }}` literals are
+          # unaffected.
+          AST::IdentifierLiteral.new(current_token.value).at(current_token.location)
         end || assert_token(Kind::IDENTIFIER) do
           AST::IdentifierLiteral.new(current_token.value).at(current_token.location)
         end

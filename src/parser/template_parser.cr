@@ -3,6 +3,7 @@ class Crinja::Parser::TemplateParser
 
   @trim_left = false
   @left_is_block = false
+  @no_trim_left = false
   @last_sibling_fixed : AST::FixedString?
 
   def self.new(template : Template)
@@ -97,14 +98,19 @@ class Crinja::Parser::TemplateParser
   end
 
   private def parse_fixed_string
+    # `no_trim_left` comes from a preceding block tag that closed with `+%}`
+    # (force-disables trim_blocks on this fixed's left boundary). Read before
+    # resetting, same as @trim_left/@left_is_block.
     node = AST::FixedString.new(
       current_token.value,
       @trim_left, @left_is_block,
-      false, false
+      false, false,
+      @no_trim_left, false
     ).at(current_token.location)
 
     @trim_left = false
     @left_is_block = false
+    @no_trim_left = false
 
     next_token
     # if (sibling = last_sibling).nil?
@@ -133,9 +139,14 @@ class Crinja::Parser::TemplateParser
     next_token
     expression = @expression_parser.parse(Kind::EXPR_END)
 
-    expect Kind::EXPR_END
+    # Capture the closing token's right-side trim BEFORE `expect` advances
+    # the stream (expect reads it too late otherwise - the tag path does the
+    # same, see parse_tag). Without this, `{{ v -}}` never strips the
+    # following text. (P3.2)
+    trim_right = current_token.trim_right
     end_location = current_token.location
-    set_trim(current_token.trim_right, trim_left)
+    expect Kind::EXPR_END
+    set_trim(trim_right, trim_left)
 
     AST::PrintStatement.new(expression).at(start_location, end_location)
   end
@@ -143,6 +154,7 @@ class Crinja::Parser::TemplateParser
   private def parse_tag
     start_location = current_token.location
     trim_right = current_token.trim_left
+    no_lstrip_right = current_token.plus_left
     next_token
 
     assert_token Kind::IDENTIFIER do
@@ -165,9 +177,18 @@ class Crinja::Parser::TemplateParser
 
     end_location = current_token.location
     trim_left = current_token.trim_right
+    no_trim_left = current_token.plus_right
     expect Kind::TAG_END
 
     set_trim(trim_left, trim_right, true)
+
+    # Jinja2 `+` overrides (force-disable the config-side trim):
+    #  - `{%+`  -> the whitespace BEFORE this block tag is NOT lstripped
+    #  - `+%}`  -> the whitespace AFTER  this block tag is NOT trim_blocked
+    @no_trim_left = no_trim_left
+    if no_lstrip_right && (sibling = @last_sibling_fixed)
+      sibling.no_lstrip_right = true
+    end
 
     if tag.is_a?(Tag::EndTag)
       node = AST::EndTagNode.new(name_token.value, arguments).at(start_location, end_location)

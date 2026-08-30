@@ -112,19 +112,37 @@ class Crinja::Renderer
   # one of `StringTrimmer.trim`'s own existing behaviors and specs
   # completely untouched - only this call site's OWN dispatch changes.
   def self.trim_text(node, trim_blocks = false, lstrip_blocks = false)
-    implicit_trim_blocks = trim_blocks && node.left_is_block && node.string.starts_with?('\n')
-
     string = node.string
+
+    # Explicit `-` whitespace control: full strip on that side (strong).
     string = string.lstrip if node.trim_left
     string = string.rstrip if node.trim_right
 
-    Crinja::Util::StringTrimmer.trim(
-      string,
-      (!node.trim_left) && implicit_trim_blocks,
-      (!node.trim_right) && (lstrip_blocks && node.right_is_block),
-      node.left_is_block,
-      node.right_is_block && lstrip_blocks
-    )
+    # Implicit trim_blocks: remove a SINGLE newline immediately following a
+    # block tag (matches Jinja2). Does not fire for `+%}` (no_trim_left) and
+    # does not stack with an explicit `-` on that side (already stripped).
+    if trim_blocks && node.left_is_block && !node.no_trim_left && !node.trim_left && string.starts_with?('\n')
+      string = string[1..]
+    end
+
+    # Implicit lstrip_blocks: strip the whitespace sitting on the block tag's
+    # OWN line (the suffix after the last newline), KEEPING the newline. Faithful
+    # to Jinja2's algorithm:
+    #   - only fires when the tag is preceded by a newline (never for inline
+    #     tags whose gap is a bare space - the `line_starting` edge is
+    #     approximated by requiring a newline),
+    #   - only strips when that suffix is entirely whitespace (NBSP included,
+    #     matching Python's \s), so mixed content like "foo  " is left alone,
+    #   - never fires for `{%+` (no_lstrip_right) or an explicit `-` (trim_right).
+    if lstrip_blocks && node.right_is_block && !node.no_lstrip_right && !node.trim_right
+      if string.empty? || !(nl = string.rindex('\n'))
+        # no newline -> inline gap, nothing to strip
+      elsif string[(nl + 1)..].each_char.all?(&.whitespace?)
+        string = string[0..nl]
+      end
+    end
+
+    string
   end
 
   visit FixedString do

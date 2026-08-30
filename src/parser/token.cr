@@ -44,6 +44,11 @@ class Crinja::Parser::Token
 
   property trim_left = false, trim_right = false
 
+  # Jinja2 `+` whitespace-control overrides (Jinja 3): `{%+` force-disables
+  # lstrip_blocks for the tag, `+%}` force-disables trim_blocks. Stronger than
+  # the `-` side? No - the opposite: `+` FORBIDS the implicit config-side trim.
+  property plus_left = false, plus_right = false
+
   property whitespace_before : String?
   property whitespace_after : String?
 
@@ -73,6 +78,8 @@ class Crinja::Parser::Token
     @whitespace_after = nil
     @trim_left = false
     @trim_right = false
+    @plus_left = false
+    @plus_right = false
   end
 
   def inspect(io : IO)
