@@ -112,10 +112,26 @@ items. See PATTERN2_AUDIT.md for the Pattern 2 methodology.
   design decision
 
 ### Cross-cutting
-- [ ] P2.16 Parity spec file: one spec that renders every newly
+- [x] P2.16 Parity spec file: one spec that renders every newly
   registered filter/test through BOTH engines and asserts identical
   output (or documents a justified difference), so future divergence is
   a failing test, not a benchmark round.
+  DONE 2026-08-30 as `spec/unit/p2_parity_matrix_spec.cr` (44 examples):
+  a single table driving every P2-registered filter/test through pure
+  `Crinja.new` AND the engine's real render path (`VarSubstitutor`) with
+  a shared expected value, plus a ConditionalEvaluator (`when:`) block
+  for the test spellings and a truthiness-trap block pinning that a
+  string "true" fails `is true` in all three engines. Two load-bearing
+  discoveries made while building it:
+  - `jinja_filters.cr` is only required by the template action plugin,
+    so a spec requiring just `variable_substitutor` sees a BARE Crinja
+    env — which had made some earlier "parity" assertions vacuously
+    green (both sides erroring identically). This file requires it
+    explicitly.
+  - the fork's `Template#render(bindings)` cannot wrap `Hash(String,
+    JSON::Any)` values; the pure side converts through the engine's own
+    `json_any_to_crinja_value` so both engines see identical data.
+  Full unit suite: 1239 examples, 0 failures.
 
 ## Pattern 3 — whitespace/trim control
 
