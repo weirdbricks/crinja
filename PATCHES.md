@@ -439,6 +439,42 @@ that half.
 
 
 
+## `namespace()`-accumulator idiom crashed / list methods missing (2026-09-01)
+
+Jinja2's own documented pattern for mutating state across a `{% for %}`
+loop (`{% set ns = namespace(items=[]) %}` + `{% set _ =
+ns.items.append(x) %}` per iteration, since a bare `{% set %}` inside a
+loop body is invisible outside that one iteration) was broken by two
+separate bugs, found downstream in krikri (weirdbricks/krikri) via a real
+role's `get_vars.j2` (bimdata.ferm) built exactly this way:
+
+- **`Resolver#resolve_attribute`'s numeric-index fallback crashed on any
+  non-numeric miss.** When `resolve_getattr` comes back Undefined (true
+  for a genuine method-call name like "append" - Array has no
+  `crinja_attribute`), the fallback tried `name.to_i` unconditionally to
+  see if the miss was really an integer index. `to_i` RAISES (ArgumentError
+  for a String, TypeError for a Value) instead of returning nil for
+  non-numeric text, so `.append(...)` crashed the whole render with
+  "Invalid Int32: ...\"" before dispatch ever got a chance to try a real
+  method-call resolution. Fixed with a rescue around the probe -
+  `src/runtime/resolver.cr`.
+- **`Array` had no `crinja_call` at all**, so even once the crash above
+  stopped, `.append(x)`/`.extend(iterable)` simply weren't implemented -
+  Crinja's method dispatch only calls through to `crinja_call` for types
+  that implement it, and a plain `Array` doesn't by default. Added
+  `src/runtime/python_list_methods.cr`, mirroring
+  `python_hash_methods.cr`'s existing `Hash#crinja_call` pattern exactly.
+  Both mutate `self` in place - correct because `Array(Value)` is a
+  reference type, so a `Value` still wrapping the SAME array instance (as
+  `namespace()`'s own `ns.items` does) sees the mutation on every later
+  read, which is the entire point of the accumulator idiom.
+
+Regression spec: `spec/runtime/namespace_accumulator_spec.cr`. Verified
+end-to-end downstream against krikri's actual motivating role shape
+(`namespace()` accumulation → `to_json` → `from_json` round-trip through a
+nested `lookup('template', ..., template_vars=dict(...))` call) - see that
+project's own `KNOWN_MISSING.md` entry for the full downstream context.
+
 ## Upstreaming - DECIDED NOT TO DO (2026-08-14)
 
 

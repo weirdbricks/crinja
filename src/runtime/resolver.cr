@@ -7,9 +7,29 @@ module Crinja::Resolver
     value = self.resolve_getattr(name, object)
 
     if value.undefined?
+      # `name.to_i` raises (ArgumentError for a String, TypeError for a
+      # Value - see Value#to_i) for any non-numeric attribute name (e.g.
+      # a method-call name like "append" that isn't a real
+      # attribute/method on this object) - `#responds_to?(:to_i)` only
+      # confirms the METHOD exists, not that the string/value PARSES as
+      # one, and neither String nor Value expose a safe `to_i?`
+      # counterpart to check first. Rescuing instead of pre-checking
+      # keeps supporting BOTH callers this method already has (a plain
+      # String key and a Crinja::Value-wrapped one) without adding a new
+      # method to either. Without this, a genuine miss fell through to
+      # crashing the whole render with "Invalid Int32: ..." instead of
+      # reaching the plain Undefined below - found via krikri's own
+      # `{% set _ = ns.items.append(x) %}` namespace-accumulator idiom
+      # (Jinja2's documented pattern for mutating state across a `{% for
+      # %}` loop): "append" isn't a numeric index, so this always
+      # crashed before dispatch ever reached a real method-call
+      # resolution for it.
       if object.indexable? && name.responds_to?(:to_i)
-        if v = object[name.to_i]?
-          return Value.new v
+        begin
+          if v = object[name.to_i]?
+            return Value.new v
+          end
+        rescue ArgumentError | TypeError
         end
       end
     end
