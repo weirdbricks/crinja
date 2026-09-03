@@ -475,6 +475,31 @@ end-to-end downstream against krikri's actual motivating role shape
 nested `lookup('template', ..., template_vars=dict(...))` call) - see that
 project's own `KNOWN_MISSING.md` entry for the full downstream context.
 
+## `Hash#crinja_call` gained `.copy()` (2026-09-03)
+
+Found via a live krikri 100-role confirm round: `ipr-cnrs.nftables`'s
+own `nft_global_default_rules.copy()` (copy a default rule set before
+customizing it per-table, a real role idiom) rendered "... .copy is
+undefined" outright - `src/runtime/python_hash_methods.cr`'s
+`Hash#crinja_call` only implemented `keys`/`values`/`items`/`get`, not
+`copy`. Added as a shallow copy (`self.dup`, a new Hash object with the
+same key/value pairs) matching real Python `dict.copy()` semantics -
+important specifically because a later in-place mutation on the copy
+(e.g. a subsequent `.update()`) must not alias back onto the original.
+Regression spec: `spec/expression/dict_spec.cr`'s ".copy()" case.
+
+`.update()` itself (Python dict.update(), in-place merge) is still NOT
+implemented here at the Crinja method-dispatch level - krikri's own
+`CrinjaRenderer` carries a narrower, storage-pattern-specific special
+case for the one documented `"{{ x.update(y) }}{{ x }}"` idiom instead
+(see krikri's own `KNOWN_MISSING.md`). A general `Hash#crinja_call`
+`.update()` would be more robust (works for ANY call-site shape, not
+just that one stored-string pattern) but needs real type-coercion work
+across the different `Hash(K, V)` instantiations this generic method
+sees (plain vars-backed `Hash(String, JSON::Any)` vs. a `{...}` dict
+LITERAL's `Crinja::Dictionary` = `Hash(Value, Value)`) - deferred until
+a concrete failing case needs it, same policy as Pattern 4 below.
+
 ## Upstreaming - DECIDED NOT TO DO (2026-08-14)
 
 

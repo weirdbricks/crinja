@@ -32,6 +32,15 @@ class Hash(K, V)
           default
         end
       end
+    when "copy"
+      # Python dict.copy() - a shallow copy (new Hash object, same
+      # key/value pairs) so a later in-place mutation on the copy (e.g.
+      # a subsequent `.update()`) doesn't alias back onto the original.
+      # Found via ipr-cnrs.nftables: `nft_global_default_rules.copy()`
+      # (a real role idiom - copy a default rule set before customizing
+      # it per-table) rendered "... .copy is undefined" outright, since
+      # plain Hash had no crinja_call entry for it at all.
+      ->(_arguments : Crinja::Arguments) { Crinja::Value.new(self.dup) }
     else
       nil
     end
