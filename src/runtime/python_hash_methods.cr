@@ -32,6 +32,28 @@ class Hash(K, V)
           default
         end
       end
+    when "update"
+      # Python dict.update(other) - merges other's key/value pairs into
+      # self IN PLACE (self is the same Hash object the caller already
+      # holds a reference to, so this mutation is visible through any
+      # other Value still wrapping it - matching real Python's own
+      # aliasing semantics) and returns None. Found via ipr-cnrs.
+      # nftables: `{% set globalmerged = nft_global_default_rules.copy()
+      # %}{% set _ = globalmerged.update(nft_global_rules) %}` (build a
+      # merged rule set from a copy of the defaults, a real role idiom),
+      # which rendered "globalmerged.update is undefined" outright since
+      # plain Hash had no crinja_call entry for it.
+      ->(arguments : Crinja::Arguments) do
+        other = arguments.varargs[0]? || Crinja::Value.new(nil)
+        if (other_hash = other.raw).is_a?(Hash)
+          other_hash.each do |k, v|
+            key = k.is_a?(Crinja::Value) ? k.as(Crinja::Value) : Crinja::Value.new(k)
+            val = v.is_a?(Crinja::Value) ? v.as(Crinja::Value) : Crinja::Value.new(v)
+            self[key.as(K)] = val.as(V)
+          end
+        end
+        Crinja::Value.new(nil)
+      end
     when "copy"
       # Python dict.copy() - a shallow copy (new Hash object, same
       # key/value pairs) so a later in-place mutation on the copy (e.g.
