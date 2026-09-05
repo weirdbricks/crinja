@@ -106,6 +106,35 @@ describe Crinja::Filter do
     end
   end
 
+  describe "sort" do
+    it "sorts a list" do
+      bindings = {"foo" => ["c", "aa", "AB", "b"]}
+      evaluate_expression(%(foo|sort), bindings).should eq %(['aa', 'AB', 'b', 'c'])
+    end
+
+    it "sorts a dict into its KEYS, like Python's sorted(dict)" do
+      # Real Jinja2's `sort` on a dict yields the sorted keys, not
+      # (key, value) tuples. The tuple behavior is what krikri-playbook
+      # lived with until the round 300 dict-iteration fix - it made
+      # `{% for backend in pdns_backends | sort() %}` bind tuples
+      # (found via PowerDNS.pdns, round 300 Kata campaign). dictsort
+      # above still yields (key, value) pairs - use it when the role
+      # wants pairs in a specific order.
+      bindings = {"foo" => {"b" => 1, "aa" => 0, "AB" => 3, "c" => 2}}
+      evaluate_expression(%(foo|sort), bindings).should eq %(['aa', 'AB', 'b', 'c'])
+    end
+
+    it "sorts a list of (key, value) pairs (the .items() shape) lexicographically by first element" do
+      # Oefenweb.bash's own .bash_aliases.j2 uses
+      # `{% for key, value in bash_aliases.items() | sort %}` - the
+      # input is an Array of Arrays (not a Hash), so the dict-keys
+      # special case does not fire; the existing Array-of-Tuple
+      # comparison routing sorts by first element.
+      bindings = {"foo" => [["c", 2], ["a", 0], ["b", 1]]}
+      evaluate_expression(%(foo|sort), bindings).should eq %([['a', 0], ['b', 1], ['c', 2]])
+    end
+  end
+
   describe "batch" do
     it "batches" do
       evaluate_expression(%(foo|batch(3)|list), {"foo" => (0..9)}).should eq "[[0, 1, 2], [3, 4, 5], [6, 7, 8], [9]]"

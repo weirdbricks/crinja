@@ -22,6 +22,22 @@ class Crinja::Tag::For < Crinja::Tag
 
     collection = env.evaluator.value(collection_expr)
 
+    # Real Jinja2 iterates a dict yielding its KEYS (Python's own
+    # `for k in dict:` semantics): `{% for backend in pdns_backends %}`
+    # over a dict-bound variable yielded Crinja::Tuple (key, value)
+    # pairs here, so `backend` was a tuple and a downstream
+    # `backend | replace(...)` failed with "Cast from Crinja::Tuple to
+    # (Crinja::SafeString | String) failed" (found via PowerDNS.pdns in
+    # krikri-playbook's round 300 Kata campaign). Only the SINGLE
+    # loop-variable case is remapped to the key list: the two-variable
+    # form (`{% for key, val in dict %}`) deliberately keeps iterating
+    # (key, value) pairs - Context#unpack splits each pair across the
+    # target names, and real-world roles (jtyr.nsswitch/jtyr.motd)
+    # depend on that working.
+    if item_vars.size == 1 && (hash = collection.raw).is_a?(Hash)
+      collection = Value.new(hash.keys.map { |key| Value.new(key) })
+    end
+
     if if_expr
       collection = ConditionalIterator.new(collection.each, if_expr, env, item_vars)
     end

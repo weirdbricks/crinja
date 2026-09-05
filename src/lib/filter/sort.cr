@@ -31,7 +31,22 @@ module Crinja::Filter
   }, :sort) do
     case_sensitive = arguments["case_sensitive"].truthy?
 
-    array = target.to_a
+    # Real Jinja2's `sort` on a dict sorts and returns its KEYS
+    # (Python's `sorted(dict)` semantics), not (key, value) tuples:
+    # `{% for backend in pdns_backends | sort() %}` over a dict-bound
+    # variable yielded Crinja::Tuple pairs here, so `backend` was a
+    # tuple and a downstream `backend | replace(...)` failed with
+    # "Cast from Crinja::Tuple to (Crinja::SafeString | String)
+    # failed" (found via PowerDNS.pdns in krikri-playbook's round 300
+    # Kata campaign). Value#to_a still yields pairs for a Hash -
+    # `dictsort` above depends on that (real dictsort returns
+    # (key, value) pairs) - so only the dict case is special-cased
+    # here, mapping the raw keys back into Values.
+    array = if (hash = target.raw).is_a?(Hash)
+              hash.keys.map { |key| Value.new(key) }
+            else
+              target.to_a
+            end
 
     attribute = nil
 

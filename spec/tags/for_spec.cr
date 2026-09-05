@@ -227,4 +227,18 @@ describe Crinja::Tag::For do
     template = env.from_string(%({% for entry in seq %}{{ foo() }}{% endfor %}))
     template.render({"seq" => ["a", "b"]}).should eq "calledcalled"
   end
+
+  it "iterates a dict yielding KEYS for a single loop variable (Python semantics)" do
+    # Real Jinja2 iterates a dict exactly like Python: `for k in dict:`
+    # yields keys. The two-variable form keeps iterating (key, value)
+    # pairs - see the krikri-playbook fork's design note in
+    # src/lib/tag/for.cr for why (real-world roles like jtyr.nsswitch
+    # depend on the pairs behavior). This used to also yield pairs
+    # here, so a downstream string operation on the loop variable
+    # failed with "Cast from Crinja::Tuple to (Crinja::SafeString |
+    # String) failed" (found via PowerDNS.pdns in krikri-playbook's
+    # round 300 Kata campaign).
+    render(%({% for k in dict %}{{ k }};{% endfor %}), {"dict" => {"b" => 2, "a" => 1}})
+      .should eq("b;a;")
+  end
 end

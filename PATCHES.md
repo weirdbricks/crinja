@@ -537,3 +537,62 @@ right" question that real Jinja2 settled:
   absolute paths, `""` for relative); it does NOT return the dict's
   "root" element or any other interpretation.
 
+## crystal-play-0.9.24 (2026-09-05): iterating a dict yields KEYS (Python semantics) in the two paths that lost the type
+
+Real Jinja2 iterates a dict exactly like Python: `{% for k in dict %}`
+yields KEYS, and `sorted(dict)` returns the sorted KEYS -
+`.items()`/`dictsort` are the explicit opt-ins for `(key, value)` pairs.
+This fork's `Value#each`/`raw_each` default a `Dictionary` to
+`(key, value)` tuples for every consumer (a deliberate historical choice,
+see the "two-variable form" note below), which leaked tuples into two
+real-role shapes and broke both:
+
+- `{% for backend in pdns_backends %}` bound `backend` to a
+  `Crinja::Tuple` instead of a key string, so a downstream
+  `backend | replace(...)` failed with "Cast from Crinja::Tuple to
+  (Crinja::SafeString | String) failed".
+- `{% for backend in pdns_backends | sort() %}` failed the same way one
+  layer deeper: `sort`'s `target.to_a` converted the dict into an
+  `Array` of tuples before the `for` tag ever saw it, so the type
+  information ("this came from a dict") was already lost.
+
+Both found via `PowerDNS.pdns` benchmarking krikri-playbook (its round
+300 Kata campaign).
+
+**Fix strategy: targeted special-cases, NOT a flip of `each`/`raw_each`'s
+default.** The tuple-by-default behavior of `Value#each`/`raw_each` is
+left completely untouched, because krikri's own templating layer has
+shipped and live-verified the two-variable form
+(`{% for key, val in dict %}` yielding pairs - jtyr.nsswitch, jtyr.motd)
+on top of it. Instead:
+
+- `src/lib/tag/for.cr`: when there is exactly ONE loop variable and the
+  collection's raw value is a `Hash`, the `for` tag iterates the dict's
+  KEYS directly. The two-variable form still gets `(key, value)` pairs
+  via `Context#unpack` splitting each pair, exactly as before.
+- `src/lib/filter/sort.cr`: a `Hash` target sorts its raw KEYS (Python's
+  `sorted(dict)`). `dictsort` is unaffected - it still calls
+  `Value#to_a` and keeps yielding `(key, value)` pairs, which is correct
+  real-dictsort behavior.
+
+`sort` on an `.items()` result (an `Array` of pairs, e.g.
+Oefenweb.bash's `{% for key, value in bash_aliases.items() | sort %}`)
+is also unaffected: the input is an `Array`, not a `Hash`, so the
+key-sorting special case does not fire and the existing element-wise
+tuple comparison (crystal-play-0.9.18's `Value#compare` fix) sorts by
+first element as before.
+
+Known remaining divergence, deliberately left alone: filters that go
+through `Value#to_a`/`each` on a BARE dict other than `sort` (`list`,
+`map`, `select`/`reject`, `join`, membership tests, ...) still see
+`(key, value)` tuples, matching the historical fork behavior. Real
+Jinja2 mostly yields keys there too (e.g. `list(dict)`,
+`dict | length` is coincidentally the same). Nothing in the known role
+corpus hits those shapes; fix on encounter, per krikri's reactive-fix
+policy.
+
+Regression specs: `spec/tags/for_spec.cr` ("iterates a dict yielding
+KEYS for a single loop variable"), `spec/lib/filter_spec.cr`'s "sort"
+describe block (dict sorts to KEYS; `.items()`-shape pair-array still
+sorts lexicographically by first element). Full fork spec suite:
+666 examples, 0 failures, 0 errors, 11 pending.
