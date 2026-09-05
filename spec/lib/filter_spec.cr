@@ -735,4 +735,18 @@ describe Crinja::Filter do
       .should eq %({'k': [['a', 1]]})
   end
 
+  # crystal-play-0.9.27: `| string` is Python str() BEFORE ansible-core's
+  # native-types tuple->list conversion - the one place a tuple keeps its
+  # paren repr (verified against real ansible-core 2.19.4:
+  # `{{ d1 | dictsort | string }}` -> `[('a', 1), ('b', 2)]`).
+  it "string filter keeps Python str() paren repr for tuples" do
+    evaluate_expression(%(foo|dictsort|string), {"foo" => {"b" => 2, "a" => 1}})
+      .should eq "[('a', 1), ('b', 2)]"
+  end
+
+  it "string filter on a bare tuple renders parens" do
+    evaluate_expression(%(foo|dictsort|first|string), {"foo" => {"a" => 1}})
+      .should eq "('a', 1)"
+  end
+
 end

@@ -42,7 +42,13 @@ module Crinja::Filter
     string.gsub(/\n/, nl)
   end
 
-  Crinja.filter(:string) { env.stringify target }
+  # Python `str()` semantics: an explicit `| string` stringifies the
+  # value BEFORE ansible-core's native-types finalization converts
+  # tuples to lists, so tuples keep their `str(tuple)` parens repr here
+  # (`{{ d1 | dictsort | string }}` -> `[('a', 1), ...]` - brackets
+  # outer, parens inner) while bare interpolation renders brackets.
+  # Verified against real ansible-core 2.19.4 (crystal-play-0.9.27).
+  Crinja.filter(:string) { env.stringify target, env.context.autoescape?, true }
 
   Crinja.filter(:title) do
     target.to_s.gsub(/[^#{Crinja::Util::REGEX_WORD.source}]+/, &.capitalize)

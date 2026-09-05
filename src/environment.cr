@@ -180,8 +180,12 @@ class Crinja
   end
 
   # Turns *object* into a string represenation using `Crinja::Finalizer`.
-  def stringify(object, pretty = false)
-    @finalizer.stringify(object, context.autoescape?)
+  # python_str: true selects Python `str()` repr semantics (tuples keep
+  # their parens) - used by the `| string` filter, matching real
+  # ansible-core where `| string` runs Python str() before the
+  # native-types tuple->list conversion (crystal-play-0.9.27).
+  def stringify(object, pretty = false, python_str = false)
+    @finalizer.stringify(object, context.autoescape?, false, python_str)
   end
 
   # Creates a new `undefined`.

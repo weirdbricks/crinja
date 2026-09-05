@@ -100,6 +100,27 @@ lists", and the three dictsort specs updated from paren to bracket
 expectations. Full fork spec suite: 677 examples, 0 failures, 0
 errors, 11 pending.
 
+## crystal-play-0.9.27 (2026-09-05): `| string` keeps the Python paren repr for tuples
+
+The exception to crystal-play-0.9.26's tuple-as-list rule, which that
+release's commit message claimed was handled but wasn't: real
+ansible-core's `| string` filter applies Python's own `str()` to the
+value BEFORE the native-types tuple->list finalization, so it is the
+one output position where the paren repr survives - verified against
+real ansible-core 2.19.4: `{{ d1 | dictsort | string }}` renders
+`[('a', 1), ('b', 2)]` (brackets outer, parens inner), and
+`{{ (1, 2) | string }}` renders `(1, 2)`. After 0.9.26 the Finalizer
+rendered brackets in both positions.
+
+Fix: `Finalizer` grows a `python_str` flag (tuple renders parens when
+set); `Environment#stringify` forwards it; the `string` filter passes
+it. Bare interpolation keeps 0.9.26's bracket behavior.
+
+Regression specs: "string filter keeps Python str() paren repr for
+tuples" (dictsort|string), "string filter on a bare tuple renders
+parens" (dictsort|first|string). Full fork spec suite: 679 examples,
+0 failures, 0 errors, 11 pending.
+
 ## Status: fully migrated (2026-08-13)
 
 As of this update, every `crinja_*_ext.cr` patch krikri carried

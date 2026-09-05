@@ -4,18 +4,18 @@ require "html"
 # It tries to convert values to a meaningful string represenation similar to what `Object#to_s` does
 # but with a few adjustments compared to Crystal standard `to_s` methods.
 struct Crinja::Finalizer
-  def self.stringify(raw, escape = false, in_struct = false)
+  def self.stringify(raw, escape = false, in_struct = false, python_str = false)
     String.build do |io|
-      stringify(io, raw, escape, in_struct)
+      stringify(io, raw, escape, in_struct, python_str)
     end
   end
 
-  def self.stringify(io : IO, raw, escape = false, in_struct = false)
-    new(io, escape, in_struct).stringify(raw)
+  def self.stringify(io : IO, raw, escape = false, in_struct = false, python_str = false)
+    new(io, escape, in_struct, python_str).stringify(raw)
   end
 
   # :nodoc:
-  protected def initialize(@io : IO, @escape = false, @inside_struct = false)
+  protected def initialize(@io : IO, @escape = false, @inside_struct = false, @python_str = false)
   end
 
   # Convert a `Value` to string.
@@ -102,18 +102,24 @@ struct Crinja::Finalizer
   # native-types finalization converts Python tuples to lists at every
   # rendered-output position (verified against real ansible-core 2.19.4:
   # `{{ (1, 2) }}` renders `[1, 2]`, `{{ {'k': (1, 2)} }}` renders
-  # `{'k': [1, 2]}`, `zip`/`dictsort` results render as nested lists);
-  # only an explicit `| string` keeps the Python `str(tuple)` parens
-  # repr, and that filter goes through Tuple#to_s, not this method.
-  # Previously rendered `(a, b)` parens, so a `{{ d1 | dictsort }}`
-  # interpolated into text produced paren-reprs where real Ansible
-  # produces bracketed lists (found via krikri-playbook's round-306
-  # follow-up verification).
+  # `{'k': [1, 2]}`, `zip`/`dictsort` results render as nested lists).
+  # Previously rendered `(a, b)` parens unconditionally, so a
+  # `{{ d1 | dictsort }}` interpolated into text produced paren-reprs
+  # where real Ansible produces bracketed lists (found via
+  # krikri-playbook's round-306 follow-up verification).
+  #
+  # The ONE exception is an explicit `| string` filter: real Ansible's
+  # `| string` applies Python's own `str()` to the value BEFORE the
+  # native-types conversion ever runs, so tuples keep their
+  # `str(tuple)` parens repr there (`{{ d1 | dictsort | string }}`
+  # renders `[('a', 1), ('b', 2)]` - brackets outer, parens inner).
+  # That filter passes python_str: true, switching this method back to
+  # the parens form (crystal-play-0.9.27).
   protected def stringify(array : Crinja::Tuple)
     @inside_struct = true
-    @io << "["
+    @io << (@python_str ? "(" : "[")
     array.join(@io, ", ") { |item| stringify(item) }
-    @io << "]"
+    @io << (@python_str ? ")" : "]")
   end
 
   private def quote(&)
