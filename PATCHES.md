@@ -76,6 +76,30 @@ coverage for `list`/`join`/`first`/`last`/`min`/`max`/`unique`/
 `map`/`select`/`reverse` on a bare dict. Full fork spec suite: 675
 examples, 0 failures, 0 errors, 11 pending.
 
+## crystal-play-0.9.26 (2026-09-05): tuples render as bracketed lists (ansible-core native-types parity)
+
+Follow-up verification of the 0.9.25 keys-flip caught a formatting
+divergence the round's own spec had encoded as expected: real
+ansible-core 2.19 converts Python tuples to lists at EVERY
+rendered-output position (native-types finalization) - `{{ (1, 2) }}`
+renders `[1, 2]`, `{{ {'k': (1, 2)} }}` renders `{'k': [1, 2]}`,
+`zip`/`dictsort` results interpolate as bracketed nested lists. Only an
+explicit `| string` keeps the Python `str(tuple)` parens repr. This
+fork's `Finalizer` rendered `Crinja::Tuple` as `(a, b)` parens, so
+`{{ d1 | dictsort }}` interpolated into text produced `[('a', 1), ...]`
+where real Ansible produces `[['a', 1], ...]`.
+
+Fix: `src/runtime/finalizer.cr`'s `stringify(Crinja::Tuple)` now uses
+the array form (`[a, b]`). `Tuple#to_s` (the `| string` path) is
+untouched and keeps the parens repr, matching real Ansible's one
+exception.
+
+Regression specs: "stringifies a Crinja::Tuple as a bracketed list,
+not parens", "dictsort nested inside a dict value renders as bracketed
+lists", and the three dictsort specs updated from paren to bracket
+expectations. Full fork spec suite: 677 examples, 0 failures, 0
+errors, 11 pending.
+
 ## Status: fully migrated (2026-08-13)
 
 As of this update, every `crinja_*_ext.cr` patch krikri carried

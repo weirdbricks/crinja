@@ -92,17 +92,17 @@ describe Crinja::Filter do
   describe "dictsort" do
     it "sorts" do
       bindings = {"foo" => {"aa" => 0, "b" => 1, "c" => 2, "AB" => 3}}
-      evaluate_expression(%(foo|dictsort), bindings).should eq %([('aa', 0), ('AB', 3), ('b', 1), ('c', 2)])
+      evaluate_expression(%(foo|dictsort), bindings).should eq %([['aa', 0], ['AB', 3], ['b', 1], ['c', 2]])
     end
 
     it "sorts caseinsensitive" do
       bindings = {"foo" => {"aa" => 0, "b" => 1, "c" => 2, "AB" => 3}}
-      evaluate_expression(%(foo|dictsort(true)), bindings).should eq %([('AB', 3), ('aa', 0), ('b', 1), ('c', 2)])
+      evaluate_expression(%(foo|dictsort(true)), bindings).should eq %([['AB', 3], ['aa', 0], ['b', 1], ['c', 2]])
     end
 
     it "sorts by value" do
       bindings = {"foo" => {"aa" => 0, "b" => 1, "c" => 2, "AB" => 3}}
-      evaluate_expression(%(foo|dictsort(false, "value")), bindings).should eq %([('aa', 0), ('b', 1), ('c', 2), ('AB', 3)])
+      evaluate_expression(%(foo|dictsort(false, "value")), bindings).should eq %([['aa', 0], ['b', 1], ['c', 2], ['AB', 3]])
     end
   end
 
@@ -718,6 +718,21 @@ describe Crinja::Filter do
 
   it "reverse on a dict reverses keys" do
     evaluate_expression(%(d|reverse|list), {"d" => {"b" => 2, "a" => 1, "c" => 3}}).should eq "['c', 'a', 'b']"
+  end
+
+  # crystal-play-0.9.26: ansible-core's native-types finalization converts
+  # tuples to lists at every rendered-output position - a `{{ d1 |
+  # dictsort }}` interpolated into text must produce bracketed nested
+  # lists, not paren-reprs (verified against real ansible-core 2.19.4:
+  # `{{ (1, 2) }}` -> `[1, 2]`, `{{ {'k': (1, 2)} }}` -> `{'k': [1, 2]}`).
+  it "stringifies a Crinja::Tuple as a bracketed list, not parens" do
+    tuple = Crinja::Tuple.from({Crinja::Value.new("a"), Crinja::Value.new(1)})
+    Crinja::Finalizer.stringify(tuple).should eq("['a', 1]")
+  end
+
+  it "dictsort nested inside a dict value renders as bracketed lists" do
+    evaluate_expression(%({'k': (foo|dictsort)}), {"foo" => {"a" => 1}})
+      .should eq %({'k': [['a', 1]]})
   end
 
 end

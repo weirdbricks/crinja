@@ -98,12 +98,22 @@ struct Crinja::Finalizer
     delta.to_s(@io)
   end
 
-  # Convert an `Crinja::Tuple` to string.
+  # Convert a `Crinja::Tuple` to string as a LIST - real ansible-core's
+  # native-types finalization converts Python tuples to lists at every
+  # rendered-output position (verified against real ansible-core 2.19.4:
+  # `{{ (1, 2) }}` renders `[1, 2]`, `{{ {'k': (1, 2)} }}` renders
+  # `{'k': [1, 2]}`, `zip`/`dictsort` results render as nested lists);
+  # only an explicit `| string` keeps the Python `str(tuple)` parens
+  # repr, and that filter goes through Tuple#to_s, not this method.
+  # Previously rendered `(a, b)` parens, so a `{{ d1 | dictsort }}`
+  # interpolated into text produced paren-reprs where real Ansible
+  # produces bracketed lists (found via krikri-playbook's round-306
+  # follow-up verification).
   protected def stringify(array : Crinja::Tuple)
     @inside_struct = true
-    @io << "("
+    @io << "["
     array.join(@io, ", ") { |item| stringify(item) }
-    @io << ")"
+    @io << "]"
   end
 
   private def quote(&)
