@@ -176,7 +176,9 @@ struct Crinja::Value
   def first
     case object = @raw
     when Dictionary
-      Value.new(Crinja::Tuple.new(object.first_key, object.first_value))
+      # Real Jinja2 `dict | first` yields the first KEY (Python's
+      # `next(iter(dict))`), not a (key, value) pair.
+      Value.new(object.first_key.raw)
     when Iterable
       Value.new object.first
     when String
@@ -191,7 +193,12 @@ struct Crinja::Value
   def last
     object = @raw
 
-    if object.responds_to?(:last)
+    if object.is_a?(Dictionary)
+      # Real Jinja2 `dict | last` yields the last KEY (dicts iterate
+      # keys); Hash has no #last of its own, so this needs its own
+      # branch ahead of the generic responds_to?(:last) check.
+      Value.new(object.keys.last.raw)
+    elsif object.responds_to?(:last)
       Value.new object.last
     elsif object.is_a?(String)
       Value.new object[-1, 1]
@@ -205,7 +212,15 @@ struct Crinja::Value
   def raw_each : ::Iterator
     case object = @raw
     when Hash
-      HashTupleIterator.new(object.each)
+      # Real Jinja2/Python iterates a bare dict yielding its KEYS (`for k
+      # in dict:`, `list(dict)`, `sorted(dict)`, `','.join(dict)` all see
+      # keys, never pairs). This used to yield (key, value) Crinja::Tuple
+      # pairs unconditionally - krikri-playbook's own templating layer
+      # once depended on that as its only pair form, but every consumer
+      # that wants pairs now opts in explicitly (`.items()`, `dictsort`,
+      # or the for tag's two-variable form), so the default is Python's
+      # keys-only semantics (crystal-play-0.9.25).
+      RawIterator.new(object.each_key)
     when Iterable(Value)
       RawIterator.new(object.each)
     when Iterable
@@ -245,7 +260,9 @@ struct Crinja::Value
   def raw_each(&)
     case object = @raw
     when Hash
-      object.each { |key, value| yield Crinja::Tuple.from({key, value}) }
+      # See the other #raw_each overload's own comment: keys-only,
+      # matching Python's `for k in dict:`.
+      object.each_key { |key| yield key.raw }
     when Iterable(Value), ::Iterator(Value)
       object.each { |value| yield value.as(Value).raw }
     when Iterable, ::Iterator
@@ -648,21 +665,4 @@ end
 require "./tuple"
 
 struct Crinja::Value
-  private class HashTupleIterator
-    include ::Iterator(Crinja::Tuple)
-    include IteratorWrapper
-
-    def initialize(@iterator : ::Iterator(::Tuple(Value, Value)))
-    end
-
-    def next
-      tuple = wrapped_next
-
-      if tuple.is_a?(::Tuple)
-        Crinja::Tuple.from tuple
-      else
-        stop
-      end
-    end
-  end
 end

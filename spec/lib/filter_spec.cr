@@ -409,8 +409,11 @@ describe Crinja::Filter do
       evaluate_expression(%(values|sum('real.value')), {values: values}).should eq "42"
     end
 
-    it "sums attributes tuple" do
-      values = {"foo" => 23, "bar" => 1, "baz" => 18}
+    it "sums attributes of pairs" do
+      # Attribute-indexed sum means "resolve this attribute/index on each
+      # ELEMENT". A bare dict iterates its KEYS (Python semantics), so the
+      # pair-indexing shape needs an actual list of pairs.
+      values = [["foo", 23], ["bar", 1], ["baz", 18]]
       evaluate_expression(%(values|sum('1')), {values: values}).should eq "42"
     end
   end
@@ -679,4 +682,42 @@ describe Crinja::Filter do
       evaluate_expression(%(s|wordwrap(5)), {s: "A line with integers. 1, 2 & 3."}).split('\n').should eq ["A", "line", "with ", "integ", "ers.", "1, 2", "& 3."]
     end
   end
+  # crystal-play-0.9.25: a bare dict iterates its KEYS (Python
+  # semantics) for every consumer of Value#each/to_a. These pin the
+  # behaviors krikri-playbook verified against real ansible-core 2.19.
+  it "list filter on a dict yields keys" do
+    evaluate_expression(%(d|list), {"d" => {"b" => 2, "a" => 1}}).should eq "['b', 'a']"
+  end
+
+  it "join filter on a dict joins keys" do
+    evaluate_expression(%(d|join(',')), {"d" => {"b" => 2, "a" => 1}}).should eq "b,a"
+  end
+
+  it "first/last on a dict yield keys" do
+    evaluate_expression(%(d|first), {"d" => {"b" => 2, "a" => 1}}).should eq "b"
+    evaluate_expression(%(d|last), {"d" => {"b" => 2, "a" => 1}}).should eq "a"
+  end
+
+  it "min/max on a dict compare keys" do
+    evaluate_expression(%(d|min), {"d" => {"b" => 2, "a" => 1, "c" => 3}}).should eq "a"
+    evaluate_expression(%(d|max), {"d" => {"b" => 2, "a" => 1, "c" => 3}}).should eq "c"
+  end
+
+  it "unique on a dict yields keys" do
+    evaluate_expression(%(d|unique|list), {"d" => {"b" => 2, "a" => 1}}).should eq "['b', 'a']"
+  end
+
+  it "map on a dict maps over keys" do
+    evaluate_expression(%(d|map('upper')|list), {"d" => {"b" => 2, "a" => 1}}).should eq "['B', 'A']"
+  end
+
+  it "select on a dict filters keys" do
+    evaluate_expression(%(d|select('string')|list), {"d" => {"b" => 2, "a" => 1}})
+      .should eq "['b', 'a']"
+  end
+
+  it "reverse on a dict reverses keys" do
+    evaluate_expression(%(d|reverse|list), {"d" => {"b" => 2, "a" => 1, "c" => 3}}).should eq "['c', 'a', 'b']"
+  end
+
 end

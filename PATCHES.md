@@ -18,6 +18,64 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.25 (2026-09-05): the general dict-iteration flip - a bare dict yields KEYS everywhere
+
+Follows up on crystal-play-0.9.24, which special-cased only the two
+paths a live role had hit (`for` tag single-variable, `sort` on a raw
+Hash) and deliberately left `Value#each`/`raw_each`'s tuple-by-default
+in place, "fix on encounter". krikri-playbook then ran a dedicated
+battery comparison against real `ansible-core` 2.19 (all shapes through
+both engines, output-diffed) and collected the remaining consumers that
+still diverged:
+
+- `dict | list`, `dict | unique | list` -> tuple reprs, real: keys
+- `dict | join(',')` -> tuple reprs, real: `b,a,c`
+- `dict | first` / `dict | last` -> tuple / empty, real: first/last key
+- `dict | min` / `dict | max` -> tuple reprs, real: min/max key
+- `dict | map('upper') | list` -> garbage, real: uppercased keys
+- `dict | select(...) | list` -> `[]`, real: filtered keys
+- `dict | reverse | list` -> dict passthrough, real: reversed keys
+- `{0: 1} | urlencode` -> `"0"`, real: `"0=1"` (urlencode pairs items)
+
+**Fix: the full semantic flip, with the one load-bearing consumer
+handled explicitly.**
+
+- `src/runtime/value.cr`: `Value#raw_each` (both overloads) yields a
+  `Hash`'s KEYS by default, matching Python's `for k in dict:`.
+  `Value#first` on a dict yields the first key (Python's
+  `next(iter(dict))`); `Value#last` a new `Dictionary` branch yielding
+  the last key (Hash has no `#last` of its own). The now-dead
+  `HashTupleIterator` is removed.
+- `src/lib/tag/for.cr`: the two-variable form
+  (`{% for key, val in dict %}`) gets its `(key, value)` pairs built
+  explicitly by the tag itself instead of inheriting them from
+  `each`'s old default. Real Jinja2 hard-fails this form ("not enough
+  values to unpack"); keeping it working is the same deliberate
+  leniency as 0.9.24 (jtyr.nsswitch/jtyr.motd shipped and were
+  live-verified on it). Single-variable form unchanged (keys).
+- `src/lib/filter/sort.cr`: `dictsort` builds its `(key, value)` pairs
+  explicitly from the raw Hash (real dictsort returns pairs); `sort`
+  keeps its explicit keys branch, now as documentation of intent.
+- `src/lib/filter/html.cr`: `urlencode` builds `k=v&...` pairs
+  explicitly from a raw Hash (real Jinja2 pairs a dict's items).
+- `src/lib/filter/collections.cr`: `reverse` gets an explicit raw-Hash
+  branch returning reversed keys (`Hash#reverse_each` would yield
+  tuples). Every other consumer (`list`, `join`, `unique`, `map`,
+  `select`/`reject`, `selectattr`, `min`, `max`, `sum`, `batch`,
+  `slice`, `groupby`, `length`, membership `in`) goes through
+  `Value#each`/`to_a` and picks up Python semantics automatically;
+  `length` and `in` were already key-correct via `Hash#size` /
+  `Hash#has_key?`.
+
+Fork spec updates: the two `spec/interpreter/value_spec.cr` "hash"
+specs (raw_each/each) now assert keys-only; `sum`'s "sums attributes
+tuple" example becomes the pairs-list form it actually meant (a bare
+dict's keys can't be attribute-summed in real Jinja either). New
+regression specs: two-variable for-yields-pairs, and filter_spec
+coverage for `list`/`join`/`first`/`last`/`min`/`max`/`unique`/
+`map`/`select`/`reverse` on a bare dict. Full fork spec suite: 675
+examples, 0 failures, 0 errors, 11 pending.
+
 ## Status: fully migrated (2026-08-13)
 
 As of this update, every `crinja_*_ext.cr` patch krikri carried

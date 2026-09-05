@@ -92,7 +92,11 @@ module Crinja::Filter
   Crinja.filter(:reverse) do
     reversable = target.raw
 
-    if reversable.responds_to?(:reverse_each)
+    if (hash = reversable).is_a?(Hash)
+      # Reversed KEYS (Python's `reversed(dict)` iterates keys);
+      # Hash#reverse_each would yield {key, value} tuples instead.
+      hash.keys.reverse.map { |key| Value.new(key) }
+    elsif reversable.responds_to?(:reverse_each)
       # FIXME: `to_a` should not be necessary, but without it creates a silent memory failure
       reversable.reverse_each.to_a
     elsif reversable.responds_to?(:reverse)

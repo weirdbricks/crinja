@@ -5,7 +5,16 @@ module Crinja::Filter
   }, :dictsort) do
     case_sensitive = arguments["case_sensitive"].truthy?
 
-    array = target.to_a
+    # Real dictsort returns (key, value) pairs sorted by key (or by
+    # value with `by=value`). Since crystal-play-0.9.25 Value#to_a
+    # yields a dict's KEYS only (Python semantics), the pairs are built
+    # here explicitly from the raw Hash instead of relying on to_a's
+    # old tuple-by-default behavior.
+    array = if (hash = target.raw).is_a?(Hash)
+              hash.map { |key, value| Value.new(Crinja::Tuple.from({key, value})) }
+            else
+              target.to_a
+            end
 
     compare = ->(a : Value, b : Value) do
       if !case_sensitive && a.string? && b.string?
@@ -32,16 +41,12 @@ module Crinja::Filter
     case_sensitive = arguments["case_sensitive"].truthy?
 
     # Real Jinja2's `sort` on a dict sorts and returns its KEYS
-    # (Python's `sorted(dict)` semantics), not (key, value) tuples:
-    # `{% for backend in pdns_backends | sort() %}` over a dict-bound
-    # variable yielded Crinja::Tuple pairs here, so `backend` was a
-    # tuple and a downstream `backend | replace(...)` failed with
-    # "Cast from Crinja::Tuple to (Crinja::SafeString | String)
-    # failed" (found via PowerDNS.pdns in krikri-playbook's round 300
-    # Kata campaign). Value#to_a still yields pairs for a Hash -
-    # `dictsort` above depends on that (real dictsort returns
-    # (key, value) pairs) - so only the dict case is special-cased
-    # here, mapping the raw keys back into Values.
+    # (Python's `sorted(dict)` semantics). Kept as an explicit
+    # special case even though Value#to_a now yields keys-only for a
+    # Hash (crystal-play-0.9.25): this branch also documents WHY the
+    # sort must not see tuples, and keeps the behavior stable if the
+    # dict ever arrives wrapped in something that responds to to_a
+    # differently.
     array = if (hash = target.raw).is_a?(Hash)
               hash.keys.map { |key| Value.new(key) }
             else

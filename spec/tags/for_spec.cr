@@ -241,4 +241,13 @@ describe Crinja::Tag::For do
     render(%({% for k in dict %}{{ k }};{% endfor %}), {"dict" => {"b" => 2, "a" => 1}})
       .should eq("b;a;")
   end
+
+  it "iterates a dict yielding (key, value) pairs for two loop variables" do
+    # Deliberate leniency beyond real Jinja2 (which hard-fails two-var
+    # unpacking of a dict's string keys): kept because real-world roles
+    # shipped on it. The pairs are built by the for tag itself since
+    # crystal-play-0.9.25 - Value#each yields keys-only now.
+    render(%({% for k, v in dict %}{{ k }}={{ v }};{% endfor %}), {"dict" => {"b" => 2, "a" => 1}})
+      .should eq("b=2;a=1;")
+  end
 end

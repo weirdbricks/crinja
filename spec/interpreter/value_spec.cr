@@ -27,11 +27,13 @@ describe Crinja::Value do
     end
 
     it "hash" do
+      # Real Jinja2/Python iterates a bare dict yielding its KEYS
+      # (`for k in dict:`); (key, value) pairs are the explicit opt-ins
+      # (`.items()`, `dictsort`, two-variable for).
       hash = Crinja::Dictionary.new
       hash[Crinja::Value.new "foo"] = Crinja::Value.new 1
       hash[Crinja::Value.new "bar"] = Crinja::Value.new 3
-      arr = [Crinja::Tuple.new("foo", 1), Crinja::Tuple.new("bar", 3)]
-      Crinja::Value.new(hash).map(&.raw).to_a.should eq arr.map(&.as(Crinja::Raw))
+      Crinja::Value.new(hash).map(&.raw).to_a.should eq ["foo", "bar"]
     end
   end
 
@@ -42,11 +44,11 @@ describe Crinja::Value do
     end
 
     it "hash" do
+      # Keys-only for a bare dict - see the raw_each "hash" spec above.
       hash = Crinja::Dictionary.new
       hash[Crinja::Value.new "foo"] = Crinja::Value.new 1
       hash[Crinja::Value.new "bar"] = Crinja::Value.new 3
-      arr = [Crinja::Tuple.new("foo", 1), Crinja::Tuple.new("bar", 3)]
-      Crinja::Value.new(hash).to_a.should eq arr.map { |item| Crinja::Value.new(item) }
+      Crinja::Value.new(hash).to_a.should eq [Crinja::Value.new("foo"), Crinja::Value.new("bar")]
     end
 
     it "#each" do

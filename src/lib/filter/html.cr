@@ -17,7 +17,13 @@ module Crinja::Filter
   end
 
   Crinja.filter(:urlencode) do
-    if target.iterable?
+    if (hash = target.raw).is_a?(Hash)
+      # Real Jinja2's urlencode pairs up a dict's items (`{0: 1} |
+      # urlencode` -> "0=1"). A bare dict iterates its KEYS since
+      # crystal-play-0.9.25, so the (key, value) pairs are built here
+      # explicitly instead of relying on iteration to tuple them.
+      hash.map { |key, value| "#{URI.encode_www_form(key.to_s)}=#{URI.encode_www_form(value.to_s)}" }.join("&")
+    elsif target.iterable?
       target.map do |item|
         if item.iterable? && item.size == 2
           [URI.encode_www_form(item[0].to_s), "=", URI.encode_www_form(item[1].to_s)].join
