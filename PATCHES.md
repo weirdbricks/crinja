@@ -699,3 +699,27 @@ KEYS for a single loop variable"), `spec/lib/filter_spec.cr`'s "sort"
 describe block (dict sorts to KEYS; `.items()`-shape pair-array still
 sorts lexicographically by first element). Full fork spec suite:
 666 examples, 0 failures, 0 errors, 11 pending.
+
+## `str.find(sub[, start])` as a real Python string method (crystal-play-0.9.28)
+
+`src/runtime/python_string_methods.cr` had `.split()`/`.startswith()`/
+`.endswith()`/`.join()` but not `.find()` - Python's substring-search
+method returning the first matching index or `-1`, the standard
+`{% if v.find('\n') != -1 %}` "does this string contain X" idiom. Found
+via jdauphant.nginx's own `nginx.conf.j2`, checking a config line for
+an embedded newline before deciding how to quote it - `.find is
+undefined` failed the whole template. Implemented via
+`String#index(sub, start)`, matching the existing methods' style
+(optional start offset, `Crinja::Value.new` wrapping an Int64).
+
+Regression spec: krikri's own `spec/unit/crinja_direct_spec.cr` (this
+fork has no dedicated spec directory of its own for string methods -
+`.startswith`/`.endswith`/`.split` are pinned there too). Full fork
+spec suite: 679 examples, 0 failures, 0 errors, 11 pending.
+
+Same commit also adds `str.replace(old, new[, count])` - found in the
+SAME template one line later, chained: `v.replace(";", ";\n
+").replace(" {", " {\n      ")...`, rewriting a config line's
+punctuation into indented multi-line form. Implemented via
+`String#gsub`/`#sub` (count-limited replace repeats `#sub`, which only
+replaces the first occurrence, `count` times).
