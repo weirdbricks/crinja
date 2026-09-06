@@ -723,3 +723,35 @@ SAME template one line later, chained: `v.replace(";", ";\n
 punctuation into indented multi-line form. Implemented via
 `String#gsub`/`#sub` (count-limited replace repeats `#sub`, which only
 replaces the first occurrence, `count` times).
+
+## `{% import %}`'s `with context`/`without context` modifier (crystal-play-0.9.29)
+
+`src/lib/tag/import.cr` never parsed real Jinja2's trailing `with
+context`/`without context` modifier at all - any template using it (in
+either direction) raised "Did not expect any more tokens, found:
+IDENTIFIER:with/without" at `parser.close` and failed the whole
+render. Found via krikri's own manala.influxdb round:
+`{%- import '_macros.j2' as macros with context -%}`.
+
+Parsed and discarded rather than actually implemented: this fork's
+existing `context_var.nil?` behavior (share the current context) for
+the bare `{% import 'x.j2' %}` form already matches real Jinja2's
+`without context` DEFAULT; `with context` on the `as name` form would
+need macros to see the IMPORTING template's own local vars, which
+nothing in the known role corpus depends on yet - fix on encounter.
+
+The tricky part was the parser's own token-position convention, which
+turned out to differ between branches: `#parse_expression` leaves
+`current_token` already sitting ON the next unconsumed token, but the
+existing `as <name>` clause's own `if_identifier` block reads
+`current_token.value` (the name) WITHOUT advancing past it - so an
+extra `next_token` is needed before checking for `with`/`without`, but
+ONLY when the `as` branch actually fired. Missing that distinction
+(tried a uniform `peek_token?`-based check first) silently broke the
+`as ... with context` combination while fixing the bare form, and
+vice versa - both directions are covered by the new spec below.
+
+Regression spec: `spec/tags/import_spec.cr` ("accepts (and ignores) a
+trailing with/without context modifier" - all of bare/`as`-with-with/
+`as`-with-without). Full fork spec suite: 680 examples, 0 failures, 0
+errors, 11 pending.
