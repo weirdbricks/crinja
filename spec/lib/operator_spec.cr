@@ -214,6 +214,49 @@ describe Crinja::Operator do
     it { evaluate_expression(%("b" != "b")).should eq "False" }
   end
 
+  describe "in" do
+    it { evaluate_expression(%('a' in 'abc')).should eq "True" }
+    it { evaluate_expression(%('d' in 'abc')).should eq "False" }
+    it { evaluate_expression(%('a' in ['a', 'b'])).should eq "True" }
+
+    it "raises TypeError for an undefined left operand against a plain string (Python str.__contains__ parity, not an empty-string coercion)" do
+      # Real Jinja2: the undefined marker reaches str.__contains__ intact
+      # (the undefined raise is deferred to force time) and Python
+      # hard-fails with "'in <string>' requires string as left operand,
+      # not UndefinedMarker" - matching real ansible-core's when:
+      # evaluator. Crinja used to stringify the marker to "" (a
+      # substring of everything) and wrongly return true.
+      expect_raises(Crinja::TypeError, "'in <string>' requires string as left operand, not UndefinedMarker") do
+        evaluate_expression(%(undefined_var in 'abc'))
+      end
+    end
+
+    it "raises the same TypeError for `not in`" do
+      expect_raises(Crinja::TypeError, "'in <string>' requires string as left operand, not UndefinedMarker") do
+        evaluate_expression(%(undefined_var not in 'abc'))
+      end
+    end
+
+    it "raises TypeError (not UndefinedError) even for a StrictUndefined left operand" do
+      env = Crinja.new
+      expect_raises(Crinja::TypeError, "'in <string>' requires string as left operand, not UndefinedMarker") do
+        env.evaluate(%(undefined_var in 'abc'), {
+          "undefined_var" => Crinja::Value.new(Crinja::StrictUndefined.new("undefined_var")),
+        })
+      end
+    end
+
+    it "keeps list membership lenient for an undefined left operand (Python list.__contains__ compares by equality)" do
+      evaluate_expression(%(undefined_var in ['a', 'b'])).should eq "False"
+    end
+
+    it "raises UndefinedError for an undefined container (unchanged: not part of this fix's scope)" do
+      expect_raises(Crinja::Error) do
+        evaluate_expression(%('a' in undefined_container))
+      end
+    end
+  end
+
   describe "comparators" do
     describe ">" do
       it { evaluate_expression(%([1, 2] > [1, 2])).should eq "False" }

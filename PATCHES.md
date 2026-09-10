@@ -18,6 +18,29 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.30 (2026-09-09): `in <string>` with an undefined left operand raises the real Python TypeError
+
+Real Jinja2 evaluates `x in y` as `y.__contains__(x)`, and a Python
+`str.__contains__` requires its argument to itself be a `str` - an
+Undefined marker reaches it intact (Jinja2 defers the undefined raise
+to force time) and Python hard-fails with its own TypeError. This
+fork's `Operator.contains?` (shared by `in`/`not in`) instead
+stringified the marker to `""` - a substring of everything - and
+wrongly returned TRUE under the default lenient mode; under
+StrictUndefined it surfaced the generic "`x` is undefined"
+UndefinedError instead. Both modes now raise `Crinja::TypeError` with
+the exact message real ansible-core's own `when:` evaluator raises for
+this shape: `'in <string>' requires string as left operand, not
+UndefinedMarker`. (Found via the asg1612.gluster round71000 divergence
+`when: node_1 in hostvars[...]['ansible_nodename']`; the hand-rolled
+`when:` side in krikri itself was fixed separately - 0.9.858 there.)
+
+Deliberately scoped to the STRING container only: `undefined in [..]`
+compares by equality and still returns False (Python
+`list.__contains__` never raises for an unknown element), and an
+undefined CONTAINER keeps the existing iterable-path behavior.
+Regression specs in `spec/lib/operator_spec.cr`.
+
 ## crystal-play-0.9.25 (2026-09-05): the general dict-iteration flip - a bare dict yields KEYS everywhere
 
 Follows up on crystal-play-0.9.24, which special-cased only the two

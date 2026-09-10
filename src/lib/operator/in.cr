@@ -8,6 +8,23 @@ class Crinja::Operator
     when Hash
       raw.has_key?(item)
     when String
+      if item.raw.is_a?(Undefined)
+        # Real Jinja2 evaluates `x in y` as `y.__contains__(x)`, and a
+        # Python str.__contains__ requires its argument to itself be a
+        # str - an Undefined marker reaches it intact (Jinja2 defers the
+        # undefined raise to force time) and Python hard-fails with its
+        # own TypeError. Crinja used to stringify the marker to "" (a
+        # substring of everything) and wrongly return true in the
+        # default lenient mode, and to surface the generic "X is
+        # undefined" UndefinedError under StrictUndefined. Both now
+        # raise the TypeError shape real Python raises. Deliberately
+        # scoped to the STRING container only: `undefined in [..]`
+        # compares by equality and returns False in real Python, and an
+        # undefined container follows the iterable path below unchanged.
+        raise Crinja::TypeError.new(
+          "'in <string>' requires string as left operand, not UndefinedMarker"
+        )
+      end
       needle = item.raw.is_a?(String) ? item.raw.as(String) : item.to_s
       raw.includes?(needle)
     else
