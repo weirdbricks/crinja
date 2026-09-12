@@ -18,6 +18,42 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.31 (2026-09-12): configurable Jinja delimiters (block/variable/comment start+end strings)
+
+The template lexer hard-coded the classic `{%`/`%}`/`{{`/`}}`/`{#`/`#}`
+delimiter shapes as `Symbol` char constants and single-char peeks, so
+there was no way to render a template whose own native syntax already
+uses `{{`/`}}` for something else (templating a Helm chart, another
+Jinja-like DSL, a Mustache-ish file). Real Jinja2 has made all six
+delimiters configurable on the environment since forever, and real
+Ansible's `template:` module exposes them as the task parameters
+`block_start_string`/`block_end_string`/`variable_start_string`/
+`variable_end_string`/`comment_start_string`/`comment_end_string`.
+
+`Config` grows the six string properties (defaults exactly as before),
+and `TemplateLexer`/`BaseLexer` are generalized from char-constant
+matching to configured-string matching:
+
+- `State` carries the scope's `end_string` (built from config at lexer
+  construction) instead of a hard-coded `end_symbol` char.
+- Start delimiters are matched by longest-match against all three
+  configured start strings (`match_start_delimiter`), with the same
+  `{%+`/`{%-` style trim/plus modifiers recognized after any of them.
+- End delimiters are matched the same way in `check_for_end`, keeping
+  the existing behaviors: the "Terminated <state> with '...'" error when
+  a *foreign* scope's end delimiter closes the current one, and the
+  "Unterminated <state>" error at EOF.
+- Fixed text ends wherever any start delimiter begins
+  (`BaseLexer#at_delimiter_start?` hook, consumed by
+  `consume_fixed`), and `raw` blocks peek for
+  `block_start_string`+`endraw`.
+
+The default (unconfigured) path is byte-identical to the old char
+constants: the full fork spec suite (694 examples) passes unchanged,
+plus new `spec/parser/custom_delimiters_spec.cr` covering tokenizing,
+rendering, whitespace-control markers, raw blocks, and the
+mismatched-end error with `<%`/`%>`/`<<`/`>>`/`<#`/`#>`.
+
 ## crystal-play-0.9.30 (2026-09-09): `in <string>` with an undefined left operand raises the real Python TypeError
 
 Real Jinja2 evaluates `x in y` as `y.__contains__(x)`, and a Python

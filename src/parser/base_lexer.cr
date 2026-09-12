@@ -42,6 +42,15 @@ module Crinja::Parser
       tokens
     end
 
+    # Overridden by lexers that recognize configurable start delimiter
+    # strings (see TemplateLexer): `consume_fixed` stops scanning fixed
+    # text wherever a start delimiter begins. The base implementation
+    # never breaks - the expression lexer consumes fixed boundaries
+    # through the template lexer instead.
+    def at_delimiter_start?(offset = 0) : Bool
+      false
+    end
+
     def consume_fixed
       @buffer.clear
       @buffer << current_char
@@ -50,14 +59,8 @@ module Crinja::Parser
         case char = next_char
         when Char::ZERO
           break
-        when Symbol::PREFIX
-          case peek_char
-          when Symbol::EXPR_START, Symbol::TAG, Symbol::NOTE
-            break
-          else
-            @buffer << char
-          end
         else
+          break if at_delimiter_start?
           @buffer << char
         end
       end

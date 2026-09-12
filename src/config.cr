@@ -40,6 +40,28 @@ class Crinja::Config
   # If this is set to `true`, leading spaces and tabs are stripped from the start of a line to a block.
   property lstrip_blocks : Bool = false
 
+  # The string marking the beginning of a block tag (`{% ... %}` in Jinja2's
+  # default configuration). See Jinja2's `block_start_string`.
+  property block_start_string : String = "{%"
+
+  # The string marking the end of a block tag. See Jinja2's `block_end_string`.
+  property block_end_string : String = "%}"
+
+  # The string marking the beginning of a print expression (`{{ ... }}` in
+  # Jinja2's default configuration). See Jinja2's `variable_start_string`.
+  property variable_start_string : String = "{{"
+
+  # The string marking the end of a print expression. See Jinja2's
+  # `variable_end_string`.
+  property variable_end_string : String = "}}"
+
+  # The string marking the beginning of a comment (`{# ... #}` in Jinja2's
+  # default configuration). See Jinja2's `comment_start_string`.
+  property comment_start_string : String = "{#"
+
+  # The string marking the end of a comment. See Jinja2's `comment_end_string`.
+  property comment_end_string : String = "#}"
+
   # Enables liquid compatibility mode.
   # The parser will additionally parse tags and expressions with liquid/django syntax:
   # * filter: `val | filter: arg, arg`
@@ -58,6 +80,12 @@ class Crinja::Config
     @keep_trailing_newline = false,
     @trim_blocks = false,
     @lstrip_blocks = false,
+    @block_start_string = "{%",
+    @block_end_string = "%}",
+    @variable_start_string = "{{",
+    @variable_end_string = "}}",
+    @comment_start_string = "{#",
+    @comment_end_string = "#}",
   )
   end
 
