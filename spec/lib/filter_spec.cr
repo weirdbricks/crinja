@@ -614,6 +614,26 @@ describe Crinja::Filter do
       evaluate_expression(%(users|rejectattr("id", "odd")|map(attribute="name")|join("|")),
         {users: users}).should eq "jane"
     end
+
+    it "dotted_attr_select_reject" do
+      stats = [
+        {"stat" => {"exists" => true}},
+        {"stat" => {"exists" => false}},
+        {"stat" => {"exists" => true}},
+      ]
+      evaluate_expression(%(stats|selectattr("stat.exists")|length), {stats: stats}).should eq "2"
+      evaluate_expression(%(stats|rejectattr("stat.exists")|length), {stats: stats}).should eq "1"
+      evaluate_expression(%(stats|map(attribute="stat.exists")|join("|")), {stats: stats}).should eq "True|False|True"
+    end
+
+    it "dotted_attr_select_reject_undefined" do
+      stats = [
+        {"stat" => {"exists" => false}},
+        {"stat" => {"gone" => true}},
+      ]
+      evaluate_expression(%(stats|selectattr("stat.exists")|length), {stats: stats}).should eq "0"
+      evaluate_expression(%(stats|rejectattr("stat.exists")|length), {stats: stats}).should eq "2"
+    end
   end
 
   describe "json_dump" do

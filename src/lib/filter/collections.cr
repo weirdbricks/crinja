@@ -157,7 +157,12 @@ module Crinja::Filter
     elsif arguments.is_set?("attribute")
       attribute = arguments["attribute"].raw
       target.map do |item|
-        Resolver.resolve_getattr(attribute, item)
+        # resolve_getattr did a single-level lookup, so a dotted attribute
+        # like 'stat.exists' (looped `stat:` task results, the common Ansible
+        # idiom) always resolved to Undefined. Dig each segment, like the
+        # sum/groupby/unique filters in this file already do.
+        # .to_s to hit the String overload; the raw value is not a Value.
+        Resolver.resolve_dig(attribute.to_s, item)
       end
     else
       varargs = arguments.varargs
@@ -179,13 +184,19 @@ module Crinja::Filter
     if varargs.size == 0
       # select based on attribute value, no filter
       target.{{ func.id }} do |item|
-        Resolver.resolve_getattr(attribute, item).truthy?
+        # resolve_getattr only did a single-level lookup, so dotted
+        # attributes like 'stat.exists' never resolved. Dig each segment,
+        # like the sum/groupby/unique filters in this file already do.
+        Resolver.resolve_dig(attribute, item).truthy?
       end
     else
       test = env.tests[varargs.shift.as_s]
 
       target.{{ func.id }} do |item|
-        args = Arguments.new(env, varargs, arguments.kwargs, target: Resolver.resolve_getattr(attribute, item))
+        # Same dotted-path fix as above: resolve_getattr treated the whole
+        # 'stat.exists' string as one literal key; dig each segment like
+        # sum/groupby/unique in this file already do.
+        args = Arguments.new(env, varargs, arguments.kwargs, target: Resolver.resolve_dig(attribute, item))
         env.execute_call(test, args).truthy?
       end
     end
