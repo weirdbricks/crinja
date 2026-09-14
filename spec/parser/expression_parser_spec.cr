@@ -22,6 +22,24 @@ describe Crinja::Parser::ExpressionParser do
     expression.should be_a(Crinja::AST::TupleLiteral)
   end
 
+  # Real Jinja2 binds `|` tighter than binary operators, so a filter
+  # call often lands directly in front of the COMMA that separates
+  # tuple elements or call arguments (`'a' + port | string, ''`).
+  # Real Jinja2's no-parenthesis call grammar takes AT MOST ONE bare
+  # argument, so such a filter's argument list must end at the COMMA
+  # instead of trying to parse the COMMA itself as an argument.
+  # (Found via rolehippie.nullmailer's `remotes.j2`, round 811337 of
+  # krikri-playbook's real-host benchmark.)
+  it "stops a no-parenthesis filter call at a COMMA (tuple)" do
+    expression = parse_expression(%(("a" | upper, "z")))
+    expression.should be_a(Crinja::AST::TupleLiteral)
+  end
+
+  it "stops a no-parenthesis filter call at a COMMA (call arguments)" do
+    expression = parse_expression(%(range(1 + 2 | abs, 4)))
+    expression.should be_a(Crinja::AST::CallExpression)
+  end
+
   it "parses integer as identifier member" do
     expression = parse_expression(%(foo.1))
     expression.should be_a(Crinja::AST::MemberExpression)

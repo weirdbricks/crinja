@@ -471,7 +471,19 @@ class Crinja::Parser::ExpressionParser
     end_tokens = if with_parenthesis
                    [Kind::RIGHT_PAREN]
                  else
-                   [Kind::EOF, Kind::EXPR_END, Kind::TAG_END, Kind::OPERATOR, Kind::PIPE, Kind::TEST, Kind::RIGHT_BRACKET, Kind::RIGHT_PAREN]
+                   # Real Jinja2's grammar for a no-parenthesis filter/test
+                   # call (`is divisibleby 3`, `x | string`) takes at most
+                   # ONE bare argument, so the argument list must also end
+                   # at a COMMA: filters bind tighter than any binary
+                   # operator, so an argument like `'a' + port | string, ''`
+                   # (tuple element or call argument) legitimately places a
+                   # COMMA directly after the filter name. Without COMMA in
+                   # this list, parse_expression_list tried to parse the
+                   # COMMA itself as an implicit argument ("Unexpected
+                   # COMMA"). Found via rolehippie.nullmailer's
+                   # `remotes.j2` (round 811337 of krikri-playbook's
+                   # real-host benchmark).
+                   [Kind::EOF, Kind::EXPR_END, Kind::TAG_END, Kind::OPERATOR, Kind::PIPE, Kind::TEST, Kind::RIGHT_BRACKET, Kind::RIGHT_PAREN, Kind::COMMA]
                  end
 
     args = if !with_parenthesis && current_token.kind == Kind::IDENTIFIER && NO_PARENS_CALL_STOP_WORDS.includes?(current_token.value)

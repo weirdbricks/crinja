@@ -18,6 +18,23 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.32 (2026-09-14): no-parenthesis filter call no longer eats a separating COMMA
+
+A no-parenthesis filter/test call's argument list (`is divisibleby 3`,
+`x | string`) did not treat a COMMA as an end token, so any expression
+placing a COMMA directly after a filter's name failed to parse with
+"Unexpected COMMA" - the comma was mistaken for the start of an implicit
+argument. Filters bind tighter than binary operators in real Jinja2, so
+the common failing shape was an argument like
+`' --port=' + port | string, ''` inside a tuple or a parenthesized call's
+argument list (e.g. `cond | ternary(' --port=' + port | string, '')`,
+which krikri itself produces when rewriting an inline `X if cond else Y`
+ternary for Crinja). Real Jinja2's no-parenthesis call grammar takes at
+most ONE bare argument, so its argument list always ends at a COMMA.
+`Kind::COMMA` is now in the no-parenthesis `end_tokens` list in
+`expression_parser.cr`. Found via rolehippie.nullmailer's `remotes.j2`
+(round 811337 of krikri-playbook's real-host benchmark).
+
 ## crystal-play-0.9.31 (2026-09-12): configurable Jinja delimiters (block/variable/comment start+end strings)
 
 The template lexer hard-coded the classic `{%`/`%}`/`{{`/`}}`/`{#`/`#}`
