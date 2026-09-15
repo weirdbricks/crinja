@@ -18,6 +18,34 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.34 (2026-09-14): `{% if %}` on a StrictUndefined raises, like real Ansible's bool() on AnsibleUndefined
+
+Real Ansible's Jinja2 environment (AnsibleUndefined, a
+`jinja2.StrictUndefined` subclass) raises an undefined-variable error
+even for a BARE boolean condition: calling `bool()` on a
+StrictUndefined is itself an error in real Jinja2, NOT silently
+falsy - confirmed directly against real `ansible-playbook`, which
+fails `{% if some_undefined_var %}yes{% endif %}` with
+"'some_undefined_var' is undefined" when the variable has no default
+anywhere (found via role `vcc_caeit.ntp`'s `templates/ntp.conf.j2`
+line 27, `{% if ntp_use_external %}`, no default in defaults/main.yml).
+This fork's `Value#truthy?` unconditionally returned `false` for ANY
+undefined value, so every truthiness consumer (`{% if %}`,
+`and`/`or`, the `truthy` test, the ternary evaluator) silently
+swallowed a StrictUndefined's check as falsy.
+
+Fix: `Value#truthy?` now raises `Crinja::UndefinedError` when the raw
+value is specifically a `Crinja::StrictUndefined` (same raise shape as
+`StrictUndefined#to_s`/`==`/`<=>` already used), while a PLAIN lenient
+`Crinja::Undefined` keeps returning `false` exactly as before -
+deliberately narrow, nothing else about truthiness changes.
+
+Regression specs: `{% if %}` with a bare StrictUndefined raises
+UndefinedError while a plain Undefined still renders the false-branch
+(`spec/tags/if_spec.cr`), and the `Value#truthy?` pair
+(`spec/runtime/value_spec.cr`). Full fork spec suite: 702 examples,
+0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.32 (2026-09-14): no-parenthesis filter call no longer eats a separating COMMA
 
 A no-parenthesis filter/test call's argument list (`is divisibleby 3`,

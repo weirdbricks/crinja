@@ -33,4 +33,22 @@ describe Crinja::Tag::If do
       render(%({% if 'Templates' ends with 's' %}"Templates" ends with "s"{% endif %}))
     end
   end
+
+  it "raises for a bare StrictUndefined variable" do
+    # Real Jinja2/Ansible: bool() on a StrictUndefined raises - real
+    # ansible-playbook fails `{% if some_undefined_var %}` with
+    # "'some_undefined_var' is undefined" (found via
+    # vcc_caeit.ntp's templates/ntp.conf.j2 `{% if ntp_use_external %}`).
+    expect_raises(Crinja::UndefinedError, "some_undefined_var is undefined") do
+      render(%({% if some_undefined_var %}yes{% else %}no{% endif %}),
+        {"some_undefined_var" => Crinja::Value.new(Crinja::StrictUndefined.new("some_undefined_var"))})
+    end
+  end
+
+  it "renders false-branch for a bare lenient Undefined variable" do
+    # The plain Undefined stays falsy, as always - only StrictUndefined
+    # got strict.
+    render(%({% if some_undefined_var %}yes{% else %}no{% endif %}),
+      {"some_undefined_var" => Crinja::Value.new(Crinja::Undefined.new("some_undefined_var"))}).should eq "no"
+  end
 end

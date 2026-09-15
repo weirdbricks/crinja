@@ -18,6 +18,23 @@ describe Crinja::Value do
     end
   end
 
+  describe "#truthy?" do
+    it "raises for StrictUndefined" do
+      # Real Jinja2/Ansible: bool() on a StrictUndefined is itself an
+      # UndefinedError (AnsibleUndefined is a StrictUndefined subclass;
+      # real ansible-playbook fails a bare `{% if undef_var %}` with
+      # "'undef_var' is undefined" - found via vcc_caeit.ntp's
+      # templates/ntp.conf.j2 `{% if ntp_use_external %}`).
+      expect_raises(Crinja::UndefinedError, "undef_var is undefined") do
+        Crinja::Value.new(Crinja::StrictUndefined.new("undef_var")).truthy?
+      end
+    end
+
+    it "is false for a plain lenient Undefined" do
+      Crinja::Value.new(Crinja::Undefined.new("undef_var")).truthy?.should be_false
+    end
+  end
+
   it "#as_time" do
     time = Time.utc
     Crinja::Value.new(time).as_time.should eq time

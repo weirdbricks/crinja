@@ -579,6 +579,15 @@ struct Crinja::Value
   # False`, `bool({}) == False`), which the previous, narrower check
   # missed entirely.
   def truthy?
+    # Real Jinja2/Ansible: `bool()` on a StrictUndefined is itself an
+    # UndefinedError - Ansible's Jinja2 environment (AnsibleUndefined,
+    # a StrictUndefined subclass) fails even a bare `{% if undef_var %}`
+    # (verified against real ansible-playbook: "'some_undefined_var' is
+    # undefined", found via vcc_caeit.ntp's templates/ntp.conf.j2
+    # `{% if ntp_use_external %}` with no default anywhere). Only the
+    # strict marker raises; the plain lenient Undefined stays falsy.
+    raw = @raw
+    raise UndefinedError.new(raw.name) if raw.is_a?(StrictUndefined)
     return false if undefined?
 
     case raw = @raw
