@@ -68,6 +68,42 @@ Crinja.test({other: 0}, :lessthan) { target.to_i.<(arguments["other"].to_i) }
 # Checks if value is greater than other.
 Crinja.test({other: 0}, :greaterthan) { target.to_i.>(arguments["other"].to_i) }
 
+# Real Jinja2's `TESTS` dict (jinja2/tests.py, verified against the
+# installed 3.1.6 source) registers the whole comparison-operator family
+# as `is`-test names - `eq`/`equalto`/`==` -> operator.eq, `ne`/`!=` ->
+# operator.ne, `lt`/`lessthan`/`<` -> operator.lt, `le`/`<=` ->
+# operator.le, `gt`/`greaterthan`/`>` -> operator.gt, `ge`/`>=` ->
+# operator.ge - so `{{ 2 is eq 2 }}`, `{{ 2 is le 2 }}` etc. are plain
+# core-Jinja2, not exotic syntax. This fork only ever registered the
+# long spellings (`equalto`/`lessthan`/`greaterthan`), so the short
+# names raised
+# `Crinja::FeatureLibrary::UnknownFeatureError: no test with name "eq"
+# registered` instead of evaluating. Found via a differential harness
+# running real Jinja2 3.1.6's own upstream test suite through this fork:
+# 5 failing cases, all the same root cause (missing short-name
+# registrations while the underlying `==`/`<`/`<=`/`>`/`>=` operators
+# worked fine). The registrations below deliberately delegate to the
+# very same comparator operator classes the binary operators dispatch
+# through, so the tests and the operators can never drift apart; the
+# symbol spellings (`==`, `!=`, ...) are reachable in real Jinja2 only
+# as string lookups (e.g. `selectattr("x", "==", 1)`) - `{{ 2 is == 3 }}`
+# is a TemplateSyntaxError there - and are not registered as bare names.
+Crinja.test({other: Crinja::UNDEFINED}, :eq) {
+  Crinja::Operator::Equals.new.value(env, target, arguments["other"])
+}
+Crinja.test({other: 0}, :lt) {
+  Crinja::Operator::LowerThan.new.value(env, target, arguments["other"])
+}
+Crinja.test({other: 0}, :le) {
+  Crinja::Operator::LowerThanEquals.new.value(env, target, arguments["other"])
+}
+Crinja.test({other: 0}, :gt) {
+  Crinja::Operator::GreaterThan.new.value(env, target, arguments["other"])
+}
+Crinja.test({other: 0}, :ge) {
+  Crinja::Operator::GreaterThanEquals.new.value(env, target, arguments["other"])
+}
+
 # Check if value is in seq.
 Crinja.test({seq: Array(Crinja::Value).new}, :in) {
   seq = arguments["seq"]

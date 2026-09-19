@@ -45,6 +45,45 @@ describe Crinja::Test do
       {:foo => 12, :bar => "baz"}).should eq "True|False|True|True|False|True|True|False"
   end
 
+  describe "comparison operator aliases" do
+    # Real Jinja2 3.1.6 registers `eq`, `lt`, `le`, `gt`, `ge` (and `ne`)
+    # in its `TESTS` dict alongside the long spellings
+    # `equalto`/`lessthan`/`greaterthan`; the short names used to raise
+    # UnknownFeatureError here. Cases mirror the differential-harness
+    # findings (real Jinja2 successes) and jinja's own test_tests.py.
+    it "eq" do
+      render(
+        %({{ foo is eq 12 }}|{{ foo is eq 0 }}|{{ foo is eq (3 * 4) }}|) \
+        %({{ bar is eq "baz" }}|{{ bar is eq "zab" }}|{{ bar is eq ("ba" + "z") }}|) \
+        %({{ bar is eq bar }}|{{ bar is eq foo }}),
+        {:foo => 12, :bar => "baz"}).should eq "True|False|True|True|False|True|True|False"
+    end
+
+    it "ne" do
+      render(%({{ 2 is ne 3 }}|{{ 2 is ne 2 }})).should eq "True|False"
+    end
+
+    it "lt" do
+      render(%({{ 2 is lt 3 }}|{{ 2 is lt 2 }})).should eq "True|False"
+    end
+
+    it "le" do
+      render(%({{ 2 is le 2 }}|{{ 2 is le 1 }})).should eq "True|False"
+    end
+
+    it "gt" do
+      render(%({{ 2 is gt 1 }}|{{ 2 is gt 2 }})).should eq "True|False"
+    end
+
+    it "ge" do
+      render(%({{ 2 is ge 2 }}|{{ 2 is ge 3 }})).should eq "True|False"
+    end
+
+    it "eq matches the == operator on mixed numeric types" do
+      evaluate_expression(%(2.0 is eq 2)).should eq "True"
+    end
+  end
+
   it "sequence" do
     render(%({{ [1, 2, 3] is sequence }}|{{ "foo" is sequence }}|{{ 42 is sequence }})).should eq "True|True|False"
   end
