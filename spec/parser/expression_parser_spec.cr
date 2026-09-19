@@ -22,6 +22,58 @@ describe Crinja::Parser::ExpressionParser do
     expression.should be_a(Crinja::AST::TupleLiteral)
   end
 
+  # Real Jinja2 parses parens via `parse_tuple(explicit_parentheses=True)`
+  # (jinja2/parser.py), so an empty `()` is a valid empty-tuple literal:
+  # `is_tuple_end` breaks the arg loop on `rparen` and `explicit_parentheses`
+  # turns the empty arg list into a `nodes.Tuple` instead of the
+  # "Expected an expression" failure bare emptiness gets. This fork raised
+  # `Unexpected RIGHT_PAREN` instead (differential-harness finding against
+  # real Jinja2 3.1.6's own upstream test suite).
+  it "parses empty tuple literal" do
+    expression = parse_expression("()")
+    expression.should be_a(Crinja::AST::TupleLiteral)
+    expression.as(Crinja::AST::TupleLiteral).children.size.should eq(0)
+  end
+
+  # Python/Jinja2's one-element tuple spelling is a MANDATORY trailing
+  # comma: `(1,)` is the 1-tuple, while `(1)` without it is just a
+  # parenthesized expression (real Jinja2's `parse_tuple` only sets
+  # `is_tuple` when it sees a comma). Both parse, but to different nodes.
+  it "parses single-element tuple literal" do
+    expression = parse_expression("(1,)")
+    expression.should be_a(Crinja::AST::TupleLiteral)
+    expression.as(Crinja::AST::TupleLiteral).children.size.should eq(1)
+  end
+
+  it "parses parenthesized single expression as expression, not tuple" do
+    expression = parse_expression("(1)")
+    expression.should be_a(Crinja::AST::IntegerLiteral)
+  end
+
+  # A trailing comma before the closing bracket is legal and ignored in
+  # every bracketed collection literal real Jinja2 parses: `parse_tuple`
+  # loops on `is_tuple_end` after consuming a comma, `parse_list` and
+  # `parse_dict` re-test the closing bracket after `expect("comma")`, and
+  # `parse_call_args` carries an explicit "support for trailing comma"
+  # comment (jinja2/parser.py 3.1.6). This fork raised `Unexpected
+  # RIGHT_PAREN` on all of these (differential-harness finding).
+  it "parses trailing comma in tuple literal" do
+    expression = parse_expression("(1, 2,)")
+    expression.should be_a(Crinja::AST::TupleLiteral)
+    expression.as(Crinja::AST::TupleLiteral).children.size.should eq(2)
+  end
+
+  it "parses trailing comma in list literal" do
+    expression = parse_expression("[1, 2,]")
+    expression.should be_a(Crinja::AST::ArrayLiteral)
+    expression.as(Crinja::AST::ArrayLiteral).children.size.should eq(2)
+  end
+
+  it "parses trailing comma in dict literal" do
+    expression = parse_expression("{1: 2,}")
+    expression.should be_a(Crinja::AST::DictLiteral)
+  end
+
   # Real Jinja2 binds `|` tighter than binary operators, so a filter
   # call often lands directly in front of the COMMA that separates
   # tuple elements or call arguments (`'a' + port | string, ''`).

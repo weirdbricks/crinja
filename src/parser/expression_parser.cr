@@ -419,6 +419,23 @@ class Crinja::Parser::ExpressionParser
 
       next_token
 
+      # An empty `()` is a valid empty-tuple literal: real Jinja2 parses
+      # parens via `parse_tuple(explicit_parentheses=True)`
+      # (jinja2/parser.py), whose `is_tuple_end` check breaks the loop on
+      # `rparen` even with no args, and `explicit_parentheses` makes the
+      # empty result a `nodes.Tuple` instead of failing - so `{{ () }}`
+      # is the empty tuple (rendered `[]` under real ansible-playbook's
+      # native-types finalization). This fork instead fed the bare
+      # RIGHT_PAREN into `parse_expression` and raised `Unexpected
+      # RIGHT_PAREN` (differential-harness finding). Only inside parens
+      # is this legal: bare `{{ , }}`-style emptiness elsewhere still
+      # fails, matching `explicit_parentheses=False`.
+      if current_token.kind == Kind::RIGHT_PAREN
+        end_location = current_token.location
+        next_token
+        return parse_postfix_trailers(AST::TupleLiteral.new([] of AST::ExpressionNode).at(start_location, end_location))
+      end
+
       expression = parse_expression
 
       if current_token.kind == Kind::COMMA
@@ -561,8 +578,19 @@ class Crinja::Parser::ExpressionParser
       exps << parse_expression
 
       if current_token.kind == Kind::COMMA
-        should_read = true
         next_token
+        # A trailing comma before the closing bracket is legal and ignored
+        # in EVERY bracketed collection literal real Jinja2 parses:
+        # `parse_tuple` loops on `if self.is_tuple_end(...): break` right
+        # after consuming a comma, `parse_list`/`parse_dict` re-test
+        # `rbracket`/`rbrace` after `expect("comma")`, and
+        # `parse_call_args` even carries an explicit "support for trailing
+        # comma" comment (jinja2/parser.py 3.1.6). This fork raised
+        # `Unexpected RIGHT_PAREN` on `{{ (1, 2,) }}`, `{{ [1, 2,] }}` and
+        # `{{ {1: 2,} }}` because it unconditionally tried to parse another
+        # expression after the comma (differential-harness finding against
+        # real Jinja2 3.1.6's own upstream test suite).
+        should_read = !end_tokens.includes?(current_token.kind)
       end
     end
 
@@ -633,8 +661,12 @@ class Crinja::Parser::ExpressionParser
       hash[key] = value
 
       if current_token.kind == Kind::COMMA
-        should_read = true
         next_token
+        # Same trailing-comma tolerance as `parse_expression_list` above:
+        # real Jinja2's `parse_dict` breaks on `rbrace` right after a
+        # comma, so `{{ {1: 2,} }}` is a valid 1-pair dict, not a syntax
+        # error.
+        should_read = current_token.kind != Kind::RIGHT_CURLY
       end
     end
 
