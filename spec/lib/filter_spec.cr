@@ -778,6 +778,30 @@ describe Crinja::Filter do
     evaluate_expression(%(d|max), {"d" => {"b" => 2, "a" => 1, "c" => 3}}).should eq "c"
   end
 
+  it "min/max compare strings case-insensitively by default" do
+    evaluate_expression(%(["a", "B"]|min)).should eq "a"
+    evaluate_expression(%(["a", "B"]|max)).should eq "B"
+    evaluate_expression(%(["B", "a"]|min)).should eq "a"
+    evaluate_expression(%(["B", "a"]|max)).should eq "B"
+  end
+
+  it "min/max return the first item on case-insensitive ties" do
+    evaluate_expression(%(["a", "A"]|min)).should eq "a"
+    evaluate_expression(%(["a", "A"]|max)).should eq "a"
+  end
+
+  it "min/max respect an explicit case_sensitive=true" do
+    evaluate_expression(%(["a", "B"]|min(case_sensitive=true))).should eq "B"
+    evaluate_expression(%(["a", "B"]|max(case_sensitive=true))).should eq "a"
+    evaluate_expression(%(["a", "A"]|min(case_sensitive=true))).should eq "A"
+    evaluate_expression(%(["a", "A"]|max(case_sensitive=true))).should eq "a"
+  end
+
+  it "min/max on numbers is unaffected by case-insensitive keying" do
+    evaluate_expression(%([3, 1, 2]|min)).should eq "1"
+    evaluate_expression(%([3, 1, 2]|max)).should eq "3"
+  end
+
   it "unique on a dict yields keys" do
     evaluate_expression(%(d|unique|list), {"d" => {"b" => 2, "a" => 1}}).should eq "['b', 'a']"
   end
