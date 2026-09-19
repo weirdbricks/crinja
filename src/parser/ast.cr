@@ -78,6 +78,39 @@ module Crinja::AST
     left : ExpressionNode,
     right : ExpressionNode
 
+  # One `(op, expr)` pair of a chained comparison - the exact shape real
+  # Jinja2's `nodes.Operand` has (see `ChainedComparisonExpression`).
+  class ComparisonOperand
+    property operator : String
+    property expr : ExpressionNode
+
+    def initialize(@operator, @expr)
+    end
+  end
+
+  # Real Jinja2's own grammar (verified against installed Jinja2 3.1.6,
+  # `jinja2/parser.py#parse_compare` and `jinja2/nodes.py#Compare`) does
+  # NOT nest comparison operators left-to-right into a binary tree: a
+  # Python-style chained comparison `a OP1 b OP2 c` is syntactic sugar
+  # for an implicit `and` between each adjacent pair, so Jinja2's own
+  # `nodes.Compare` AST node stores the left operand plus a LIST of
+  # `nodes.Operand(op, expr)` pairs, deliberately to support N-ary
+  # chaining exactly like Python's own comparison grammar. Nesting
+  # `(a OP1 b) OP2 c` instead evaluates the intermediate boolean as the
+  # left operand of OP2 - a genuine type error in both real Python and
+  # this fork (`Crinja::TypeError: Cannot compare Bool value`), found
+  # via the differential harness running real Jinja2 3.1.6's own
+  # upstream test suite against this fork (`{{ 4 < 2 < 3 }}` -> `False`
+  # in real Jinja2, since `4 < 2` short-circuits the chain, never a
+  # `False < 3` comparison). Evaluation must short-circuit like real
+  # Python too: stop at the first False pair, never evaluating later
+  # operands past that point (verified: `{{ f() < g() < h() }}` with
+  # `f() < g()` False does not call `h()`), with each middle operand
+  # evaluated at most once even though it appears in two comparisons.
+  expression_node ChainedComparisonExpression,
+    first : ExpressionNode,
+    operands : Array(ComparisonOperand)
+
   expression_node UnaryExpression,
     operator : String,
     right : ExpressionNode

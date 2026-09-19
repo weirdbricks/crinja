@@ -127,55 +127,40 @@ class Crinja::Parser::ExpressionParser
   end
 
   # `NOT` deliberately excluded from this level's own operator set - see
-  # `parse_less_greater`'s own comment just below for why (a bare `not`
-  # is never a valid binary comparator on its own; leaving it out here is
-  # what lets `parse_less_greater` see it as part of a `not in` pair
-  # instead).
+  # the comparison level just below for why (a bare `not` is never a
+  # valid binary comparator on its own; leaving it out here is what lets
+  # the comparison level see it as part of a `not in` pair instead).
+  # Real Jinja2 has all comparison operators (`==`, `!=`, `<`, `>`,
+  # `<=`, `>=`, `in`, `not in`) at ONE precedence level, between `and`
+  # and `~` (see `jinja2/parser.py#parse_compare`), so this fork's two
+  # levels (`==`/`!=` above `<`/`>`) are merged here - which is also
+  # what lets `a == b < c` chain instead of nesting.
   private def parse_equal_not
-    left = parse_less_greater
-
-    while true
-      if current_token.kind == Kind::OPERATOR
-        case current_token.value
-        when Symbol::OP_EQUAL, Symbol::OP_NOT_EQUAL
-          operator = current_token.value
-          next_token
-          right = parse_less_greater
-          left = AST::ComparisonExpression.new(operator, left, right).at(left, right)
-        else
-          return left
-        end
-      else
-        return left
-      end
-    end
-  end
-
-  # `in`/`not in` sit at the same "comparison" precedence level as
-  # `==`/`!=`/`<`/`>` in real Jinja2. `in` is lexed as a plain
-  # `Kind::IDENTIFIER` (only `and`/`or`/`not` get their own
-  # `Kind::OPERATOR` token, see `base_lexer.cr`'s `consume_name`), so it
-  # needs its own explicit check here rather than fitting the
-  # `parse_operator` macro's operator-token-list shape.
-  private def parse_less_greater
     left = parse_tilde
 
+    operands = [] of AST::ComparisonOperand
+
     while true
       if current_token.kind == Kind::OPERATOR
         case current_token.value
-        when Symbol::OP_LESS, Symbol::OP_GREATER, Symbol::OP_LESS_EQUAL, Symbol::OP_GREATER_EQUAL
+        when Symbol::OP_EQUAL, Symbol::OP_NOT_EQUAL, Symbol::OP_LESS,
+             Symbol::OP_GREATER, Symbol::OP_LESS_EQUAL, Symbol::OP_GREATER_EQUAL
           operator = current_token.value
           next_token
           right = parse_tilde
-          left = AST::ComparisonExpression.new(operator, left, right).at(left, right)
+          operands << AST::ComparisonOperand.new(operator, right)
           next
         end
       end
 
+      # `in` is lexed as a plain `Kind::IDENTIFIER` (only `and`/`or`/`not`
+      # get their own `Kind::OPERATOR` token, see `base_lexer.cr`'s
+      # `consume_name`), so it needs its own explicit check here rather
+      # than fitting the `parse_operator` macro's operator-token-list shape.
       if current_token.kind == Kind::IDENTIFIER && current_token.value == "in"
         next_token
         right = parse_tilde
-        left = AST::ComparisonExpression.new("in", left, right).at(left, right)
+        operands << AST::ComparisonOperand.new("in", right)
         next
       end
 
@@ -184,11 +169,22 @@ class Crinja::Parser::ExpressionParser
         next_token # consume "not"
         next_token # consume "in"
         right = parse_tilde
-        left = AST::ComparisonExpression.new("not in", left, right).at(left, right)
+        operands << AST::ComparisonOperand.new("not in", right)
         next
       end
 
-      return left
+      break
+    end
+
+    # A single comparison keeps the exact same node as before this
+    # change - the common single-comparison case is completely
+    # unaffected (see `PATCHES.md`).
+    if operands.empty?
+      left
+    elsif operands.size == 1
+      AST::ComparisonExpression.new(operands[0].operator, left, operands[0].expr).at(left, operands[0].expr)
+    else
+      AST::ChainedComparisonExpression.new(left, operands).at(left, operands.last.expr)
     end
   end
 
@@ -290,7 +286,7 @@ class Crinja::Parser::ExpressionParser
   # Real Jinja2/Python's unary `not` binds LOOSER than a comparison, so
   # `not a in b` means `not (a in b)`, and likewise `not a is b` means
   # `not (a is b)` - never `(not a) in/is b`. The two cases need separate
-  # handling here because `in`/`not in` (`parse_less_greater`, above) and
+  # handling here because `in`/`not in` (`parse_equal_not`, above) and
   # `is`/`is not` TESTS (`parse_filter`, below - one level HIGHER in this
   # chain, since it calls `parse_unary_expression` for its own `left`)
   # sit at different points in the precedence chain relative to this

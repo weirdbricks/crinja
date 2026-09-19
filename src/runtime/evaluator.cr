@@ -64,6 +64,31 @@ class Crinja::Evaluator
     end
   end
 
+  # Real Python/Jinja2 chained-comparison semantics (see
+  # `AST::ChainedComparisonExpression`): each adjacent pair is compared
+  # left-to-right, the chain stops at the first False pair, later
+  # operands past that point are never evaluated, and each middle
+  # operand is evaluated at most once even though it appears in two
+  # comparisons.
+  visit ChainedComparisonExpression do
+    left = Value.new evaluate expression.first
+
+    result = true
+    expression.operands.each do |operand|
+      op = @env.operators[operand.operator].as(Operator::Binary)
+      right = Value.new evaluate operand.expr
+
+      unless Value.new(op.value(@env, left, right)).truthy?
+        result = false
+        break
+      end
+
+      left = right
+    end
+
+    Value.new result
+  end
+
   visit UnaryExpression do
     op = @env.operators[expression.operator].as(Operator::Unary)
     right = evaluate expression.right

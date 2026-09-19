@@ -18,6 +18,50 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.39 (2026-09-19): Python-style chained comparisons (`a < b < c`) supported with real short-circuit semantics
+
+Real Jinja2's own grammar (verified against the installed 3.1.6 source,
+`jinja2/parser.py#parse_compare`) does NOT nest comparison operators
+left-to-right into a binary tree: a Python-style chained comparison is
+syntactic sugar for an implicit `and` between each adjacent pair, which
+is why Jinja2's own `nodes.Compare` AST node stores the left operand
+plus a LIST of `(op, expr)` `nodes.Operand` pairs rather than a nested
+binary tree, deliberately to support N-ary chaining exactly like
+Python's own comparison grammar (all comparison operators - `==`, `!=`,
+`<`, `>`, `<=`, `>=`, `in`, `not in` - live at ONE precedence level in
+that method, so `a == b < c` chains too, it does not nest). Evaluation
+short-circuits like real Python: the chain stops at the first False
+pair, later operands past that point are never evaluated (verified:
+`{{ f() < g() < h() }}` with `f() < g()` False does not call `h()`),
+and each middle operand is evaluated at most once even though it
+appears in two comparisons. This fork's parser nested every comparison
+left-to-right instead, so `{{ 4 < 2 < 3 }}` evaluated `4 < 2` first and
+then tried to evaluate the intermediate boolean `False` as the left
+operand of `< 3` - raising
+`Crinja::TypeError: Cannot compare Bool value` in both real Python and
+this fork - found via a differential harness running real Jinja2
+3.1.6's own upstream test suite against this fork (`{{ 4 < 2 < 3 }}` /
+`{{ a < b < c }}` with `a=4, b=2, c=3` -> `False`,
+`{{ 4 > 2 > 3 }}` / `{{ a > b > c }}` -> `False`,
+`{{ 4 > 2 < 3 }}` / `{{ a > b < c }}` -> `True`).
+
+The parser's two separate comparison levels (`==`/`!=` above `<`/`>`)
+are now merged into the single `parse_compare`-shaped level real
+Jinja2 has, and chains of more than one comparison operator produce a
+new `AST::ChainedComparisonExpression` node holding the left operand
+plus a list of `(operator, expr)` pairs - the same shape as Jinja2's
+own `nodes.Compare` - evaluated with real short-circuit (first False
+pair stops the chain, later operands never evaluated). A single
+comparison still produces exactly the same `AST::ComparisonExpression`
+node as before, so the common single-comparison case is completely
+unaffected.
+
+Regression specs (`spec/expression/comparator_spec.cr`, expected
+outputs verified live against real Jinja2 3.1.6): the six confirmed
+cases above plus the plain single comparison `{{ 2 < 3 }}` -> `True`
+and a four-operand chain. Full fork spec suite: 726 examples,
+0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.38 (2026-09-19): numeric literals accept underscore separators, scientific notation and `0x`/`0o`/`0b` bases like real Jinja2
 
 Real Jinja2's numeric grammar lives in two regexes in `jinja2/lexer.py`
