@@ -250,4 +250,58 @@ describe Crinja::Tag::For do
     render(%({% for k, v in dict %}{{ k }}={{ v }};{% endfor %}), {"dict" => {"b" => 2, "a" => 1}})
       .should eq("b=2;a=1;")
   end
+
+  it "renders loop.previtem and loop.nextitem with Undefined only at the boundaries" do
+    # Real Jinja2's LoopContext keeps _before/_current/_after bookkeeping
+    # (jinja2/runtime.py): previtem/nextitem are the adjacent items and a
+    # genuine Undefined object at the first/last boundary - which is why
+    # `|default('x')` fires exactly once per side. Verified live against
+    # Jinja2 3.1.6; this fork used to render `x-0-x|x-1-x|...` because
+    # previtem/nextitem were never implemented (differential harness).
+    tpl = <<-'TPL'
+        {% for item in seq -%}
+                    {{ loop.previtem|default('x') }}-{{ item }}-{{
+                    loop.nextitem|default('x') }}|
+                {%- endfor %}
+        TPL
+    render(tpl, {"seq" => [0, 1, 2, 3]}).should eq("x-0-1|0-1-2|1-2-3|2-3-x|")
+  end
+
+  it "renders loop.changed with first-call and previous-argument-tuple semantics" do
+    # Real Jinja2's LoopContext.changed(*value) returns True on the first
+    # call and whenever the WHOLE argument tuple differs from the previous
+    # call's tuple (jinja2/runtime.py `if self._last_changed_value !=
+    # value`). Verified live against Jinja2 3.1.6; this fork raised
+    # `loop.changed is undefined` because the method did not exist on the
+    # loop object at all (differential harness).
+    tpl = <<-'TPL'
+        {% for item in seq -%}
+                    {{ loop.changed(item) }},
+                {%- endfor %}
+        TPL
+    render(tpl, {"seq" => [nil, nil, 1, 2, 2, 3, 4, 4, 4]})
+      .should eq("True,False,True,True,False,True,True,False,False,")
+  end
+
+  it "scopes loop.previtem/loop.nextitem per recursion level" do
+    # Real Jinja2 creates a fresh LoopContext per recursion level (the
+    # recursive `loop(...)` call renders the body with a NEW loop context),
+    # so a nested loop's previtem/nextitem refer to siblings within the
+    # nested list, not the outer one. Verified live against Jinja2 3.1.6;
+    # this fork's Recursive subclass also builds a new loop per level, so
+    # the fix had to merely live on per-instance state, not shared state.
+    tpl = <<-'TPL'
+        {% for item in seq recursive -%}
+                    [{{ loop.previtem.a if loop.previtem is defined else 'x' }}.{{
+                    item.a }}.{{ loop.nextitem.a if loop.nextitem is defined else 'x'
+                    }}{% if item.b %}<{{ loop(item.b) }}>{% endif %}]
+                {%- endfor %}
+        TPL
+    seq = [
+      {"a" => 1, "b" => [{"a" => 2, "b" => false}, {"a" => 3, "b" => false}]},
+      {"a" => 4, "b" => false},
+      {"a" => 5, "b" => [{"a" => 6, "b" => false}]},
+    ]
+    render(tpl, {"seq" => seq}).should eq("[x.1.4<[x.2.3][2.3.x]>][1.4.5][4.5.x<[x.6.x]>]")
+  end
 end

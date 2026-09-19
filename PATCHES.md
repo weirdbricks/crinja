@@ -18,6 +18,43 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.37 (2026-09-19): `loop.previtem`/`loop.nextitem`/`loop.changed()` implemented like real Jinja2's `LoopContext`
+
+Real Jinja2's `LoopContext` (jinja2/runtime.py) keeps `_before`/`_current`/
+`_after` bookkeeping while iterating: `__next__` records the previous item
+into `_before` and the current one into `_current`, and `nextitem` returns
+the one-item lookahead buffer (`_after`, shared with the `last` check) as
+an actual `Undefined` object when the iterable is exhausted - `previtem`
+returns `_before` except during the FIRST iteration, where it is likewise
+a genuine `Undefined("there is no previous item")`. Because out-of-bounds
+access yields an `Undefined` (not nil, not a crash, not an empty string),
+both `|default(...)` and `is defined` work exactly at the real boundaries:
+`{% for item in [0,1,2,3] %}{{ loop.previtem|default('x') }}-{{ item }}-{{
+loop.nextitem|default('x') }}|{% endfor %}` renders
+`x-0-1|0-1-2|1-2-3|2-3-x|`. `changed(*value)` is stateful per loop context
+and compares the WHOLE argument tuple against the PREVIOUS call's tuple
+(`if self._last_changed_value != value`), returning True on the first call
+- `loop.changed(item)` over `[null, null, 1, 2, 2, 3, 4, 4, 4]` renders
+`True,False,True,True,False,True,True,False,False,`.
+
+This fork implemented none of it: `previtem`/`nextitem` always resolved to
+Undefined regardless of position (`x-0-x|x-1-x|...`) and `loop.changed(...)`
+raised `Crinja::TypeError: loop.changed is undefined` - found via a
+differential harness running real Jinja2 3.1.6's own upstream test suite
+against this fork. The fix reuses the one-item lookahead the loop already
+performs for its `last` check as the `_after` buffer (mirroring how real
+Jinja2's `_peek_next` caches into `_after` and `__next__` consumes it),
+tracks `_before`/`_current` per iteration, and registers `changed` as a
+memoized callable on the loop object so the previous-call tuple survives
+repeated attribute lookups within one iteration (a fresh callable per
+lookup would always report True). Recursive loops are unaffected by
+design: real Jinja2 builds a fresh `LoopContext` per recursion level and
+this fork's `ForLoop::Recursive` likewise constructs a new loop instance
+per level, so per-instance state gives each level its own previtem/
+nextitem/changed bookkeeping - verified live against Jinja2 3.1.6 with
+`{% for item in seq recursive %}` over a nested `a`/`b` structure rendering
+`[x.1.4<[x.2.3][2.3.x]>][1.4.5][4.5.x<[x.6.x]>]`.
+
 ## crystal-play-0.9.36 (2026-09-19): `groupby` reads `default=`/`case_sensitive=` kwargs and sorts groups like real Jinja2
 
 Real Jinja2's `do_groupby` accepts `groupby(attribute, default=None,
