@@ -18,6 +18,56 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.36 (2026-09-19): `groupby` reads `default=`/`case_sensitive=` kwargs and sorts groups like real Jinja2
+
+Real Jinja2's `do_groupby` accepts `groupby(attribute, default=None,
+case_sensitive=False)`: it sorts the items by the attribute value FIRST
+and only then runs Python's `itertools.groupby`, which merges only
+ADJACENT equal keys - the pre-sort is what both orders the groups by
+key and collapses every equal key into one group. With
+`case_sensitive=false` (the default) the sort AND group key is the
+attribute value case-folded via `.lower()` (strings only - `ignore_case`
+checks `isinstance(value, str)` before folding), and the emitted
+`grouper` is re-derived from the group's FIRST item with an unfolded
+attrgetter, so `["a", "b", "A"]|groupby('k')` merges "a" and "A" into
+one group keyed "a" holding both items. An item missing the attribute
+entirely falls back to the `default=` kwarg when given; without one,
+real Jinja2 raises UndefinedError even in the default lenient
+environment - the sort key becomes an Undefined marker and comparing
+markers inside `sorted()` fails (verified live against Jinja2 3.1.6:
+`'dict object' has no attribute 'city'`).
+
+This fork read NEITHER kwarg (`case_sensitive=`/`default=` were silently
+ignored, so both invocations rendered identical output), grouped the
+UNSORTED sequence by exact key in insertion order, and turned a missing
+attribute into a group with an empty-string key - found via a
+differential harness running real Jinja2 3.1.6's own upstream test
+suite against this fork (case-sensitive request also wrongly produced
+three insertion-order groups instead of `A`/`a`/`b` sorted by raw
+string comparison, exactly because the adjacency requirement of
+`itertools.groupby` was never met).
+
+The filter now reads both kwargs as real keyword arguments, sorts by
+the case-folded-or-not key with an index tiebreak keeping the sort
+stable like Python's `sorted()` (which decides both within-group order
+and which item donates a case-insensitive group's `grouper`), merges
+consecutive equal keys, and returns a sorted LIST of `(grouper, list)`
+pairs - real `do_groupby` yields `_GroupTuple` namedtuples, not a
+mapping, and its own docstring documents both consumption forms:
+tuple unpacking (`{% for grouper, list in ... %}`, already working)
+and attribute access (`group.grouper`/`group.list`, impossible with the
+previous Dictionary-shaped return value). The pairs are a small
+`Crinja::Tuple` subclass exposing `grouper`/`list` via
+`crinja_attribute`, so both forms work.
+
+Regression specs (`spec/lib/filter_spec.cr`, expected outputs verified
+live against real Jinja2 3.1.6): default case-insensitive grouping
+merges "a"/"A" into one sorted group, `case_sensitive=true` keeps them
+separate in raw-string sort order, `default='NY'` catches an
+attribute-less item into that named group, a missing attribute WITHOUT
+a default raises UndefinedError, and `grouper`/`list` attribute access.
+Full fork spec suite: 707 examples, 0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.35 (2026-09-19): comparison-operator test aliases `eq`/`lt`/`le`/`gt`/`ge` registered, like real Jinja2's TESTS dict
 
 Real Jinja2 registers the whole comparison-operator family as valid
@@ -48,7 +98,7 @@ parser has no way to spell them in an `is` expression either.
 
 Regression specs: `eq` (the full harness case with foo=12/bar="baz"),
 `ne`, `lt`, `le`, `gt`, `ge` in `spec/lib/tests_spec.cr`. Full fork
-spec suite: 709 examples, 0 failures, 0 errors, 11 pending.
+spec suite: 709 examples, 0 failures, 0 errors, 11 pending.22501b9d (groupby reads default=/case_sensitive= kwargs and sorts groups like real Jinja2)
 
 ## crystal-play-0.9.34 (2026-09-14): `{% if %}` on a StrictUndefined raises, like real Ansible's bool() on AnsibleUndefined
 
