@@ -15,7 +15,19 @@ module Crinja::Parser
         @token.kind = Kind::STRING
         @token.value = consume_string
       when .number?
-        @token.kind, @token.value = consume_numeric
+        # Django-style numeric attribute access (`[1, 2, 3].0`,
+        # `[[1]].0.0`): real Jinja2's float_re (jinja2/lexer.py 3.1.6)
+        # carries a `(?<!\.)` lookbehind, so a number whose raw text
+        # starts right after a `.` can never lex as a float - `].0.0`
+        # becomes `.` `0` `.` `0` and parse_subscript (jinja2/parser.py)
+        # turns each dot+integer into a chained Getitem (real Jinja2
+        # 3.1.6 renders `{{ [[1]].0.0 }}` as `1`). Without that
+        # lookbehind this lexer consumed the second `.0` into a single
+        # FLOAT "0.0" and the parser failed `Expected IDENTIFIER, got
+        # FLOAT` (differential-harness finding). Ordinary float
+        # literals and `foo.bar` are untouched: their number tokens
+        # never start right after a dot.
+        @token.kind, @token.value = consume_numeric(allow_float: stream.prev_char != '.')
       when '/', '*'
         @token.kind = Kind::OPERATOR
         @token.value = current_char.to_s

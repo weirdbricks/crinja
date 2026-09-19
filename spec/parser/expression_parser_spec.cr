@@ -112,6 +112,30 @@ describe Crinja::Parser::ExpressionParser do
     expression.should be_a(Crinja::AST::MemberExpression)
   end
 
+  # Django-style numeric attribute access: real Jinja2's `parse_subscript`
+  # (jinja2/parser.py 3.1.6) accepts an INTEGER token directly after a
+  # member-access dot and turns it into a Getitem index (the same syntax
+  # Django templates use for list indexing), and its float_re's `(?<!\.)`
+  # lookbehind (jinja2/lexer.py) keeps a following `.digit` from merging
+  # into one float - so `[[1]].0.0` is two chained index accesses, both
+  # real Jinja2 3.1.6 and a real ansible-playbook run render it `1`. This
+  # fork used to lex the second `.0` as FLOAT "0.0" and fail with
+  # `Expected IDENTIFIER, got FLOAT` (differential-harness finding).
+  it "parses Django-style dot index into a list" do
+    expression = parse_expression("[1, 2, 3].0")
+    expression.should be_a(Crinja::AST::MemberExpression)
+    expression.as(Crinja::AST::MemberExpression).member.name.should eq("0")
+  end
+
+  it "parses chained Django-style dot indexes" do
+    expression = parse_expression("[[1]].0.0")
+    expression.should be_a(Crinja::AST::MemberExpression)
+    inner = expression.as(Crinja::AST::MemberExpression).identifier
+    inner.should be_a(Crinja::AST::MemberExpression)
+    inner.as(Crinja::AST::MemberExpression).member.name.should eq("0")
+    expression.as(Crinja::AST::MemberExpression).member.name.should eq("0")
+  end
+
   it "parses escaped backslashes" do
     expression = parse_expression(%q("foo\\bar"))
     expression.should be_a(Crinja::AST::StringLiteral)

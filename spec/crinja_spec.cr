@@ -93,4 +93,34 @@ describe Crinja do
       render("{{ {1: 2,} }}").should eq("{1: 2}")
     end
   end
+
+  # Django-style numeric attribute access: real Jinja2's `parse_subscript`
+  # (jinja2/parser.py 3.1.6) accepts an integer token directly after a
+  # member-access dot and compiles it to the same item lookup as `[0]`
+  # (the syntax Django templates use for list indexing), and its float_re's
+  # `(?<!\.)` lookbehind (jinja2/lexer.py) keeps a chained `.digit` from
+  # merging into one float token, so `[[1]].0.0` is two chained index
+  # accesses. Expected outputs verified against BOTH real Jinja2 3.1.6 and
+  # a real `ansible-playbook` 2.19 run (`debug: msg:` tasks, outputs
+  # identical in both). This fork used to lex the second `.0` of
+  # `].0.0` as one FLOAT "0.0" and fail `Expected IDENTIFIER, got FLOAT`
+  # (differential-harness finding); ordinary float literals and `foo.bar`
+  # attribute access must stay untouched.
+  describe "Django-style numeric attribute access" do
+    it "renders dot index into a list" do
+      render("{{ [1, 2, 3].0 }}").should eq("1")
+    end
+
+    it "renders chained dot indexes into a nested list" do
+      render("{{ [[1]].0.0 }}").should eq("1")
+    end
+
+    it "renders ordinary float literal unaffected" do
+      render("{{ 1.5 }}").should eq("1.5")
+    end
+
+    it "renders ordinary attribute access unaffected" do
+      render("{{ user.name }}", {"user" => {"name" => "John"}}).should eq("John")
+    end
+  end
 end

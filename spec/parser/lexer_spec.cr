@@ -127,6 +127,43 @@ describe Crinja::Parser do
     end.should eq(expected)
   end
 
+  # Real Jinja2's float_re (jinja2/lexer.py 3.1.6) carries a `(?<!\.)`
+  # lookbehind: a number whose raw text starts right after a `.` can never
+  # lex as a float, so `].0.0` tokenizes as `.` `0` `.` `0` (verified
+  # against a real Environment.lex) and `[[1]].0.0` is two chained
+  # Django-style index accesses, not a member dot followed by float
+  # `0.0`. This lexer used to merge the second `.0` into one FLOAT
+  # "0.0" (differential-harness finding); ordinary `1.5` keeps its
+  # fractional part because its digits don't start right after a dot.
+  it "tokenizes number after member dot as integer, never float" do
+    lexer = Crinja::Parser::ExpressionLexer.new Crinja::Config.new, %([[1]].0.0)
+
+    expected = [
+      {Kind::LEFT_BRACKET, "["},
+      {Kind::LEFT_BRACKET, "["},
+      {Kind::INTEGER, "1"},
+      {Kind::RIGHT_BRACKET, "]"},
+      {Kind::RIGHT_BRACKET, "]"},
+      {Kind::POINT, "."},
+      {Kind::INTEGER, "0"},
+      {Kind::POINT, "."},
+      {Kind::INTEGER, "0"},
+      {Kind::EOF, ""},
+    ]
+
+    lexer.tokenize.map do |token|
+      {token.kind, token.value}
+    end.should eq(expected)
+  end
+
+  it "tokenizes ordinary float literal with fractional part" do
+    lexer = Crinja::Parser::ExpressionLexer.new Crinja::Config.new, %(1.5)
+
+    lexer.tokenize.map do |token|
+      {token.kind, token.value}
+    end.should eq([{Kind::FLOAT, "1.5"}, {Kind::EOF, ""}])
+  end
+
   it "tokenizes non-ascii" do
     lexer = Crinja::Parser::TemplateLexer.new Crinja::Config.new, %(£{{ "foo" }})
     expected = [
