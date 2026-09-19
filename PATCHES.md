@@ -18,6 +18,38 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.35 (2026-09-19): comparison-operator test aliases `eq`/`lt`/`le`/`gt`/`ge` registered, like real Jinja2's TESTS dict
+
+Real Jinja2 registers the whole comparison-operator family as valid
+`is`-test names in its `TESTS` dict (jinja2/tests.py, verified directly
+against the installed 3.1.6 source): `eq`/`equalto`/`==` all map to
+`operator.eq`, `ne`/`!=` to `operator.ne`, `lt`/`lessthan`/`<` to
+`operator.lt`, `le`/`<=` to `operator.le`, `gt`/`greaterthan`/`>` to
+`operator.gt`, `ge`/`>=` to `operator.ge`. This fork only ever
+registered the long spellings (`equalto`/`lessthan`/`greaterthan`,
+plus a standalone `ne`), so the short names raised
+`Crinja::FeatureLibrary::UnknownFeatureError: no test with name "eq"
+registered` (same for lt/le/gt/ge) instead of evaluating - found via a
+differential harness running real Jinja2 3.1.6's own upstream test
+suite through this fork, which produced 5 failing cases, all the same
+root cause, while the underlying `==`/`<`/`<=`/`>`/`>=` binary
+operators themselves worked fine.
+
+Fix: `eq`, `lt`, `le`, `gt`, `ge` are now registered as default tests
+in `src/lib/test/tests.cr`, each delegating to the very same comparator
+operator class the corresponding binary operator dispatches through
+(`Crinja::Operator::Equals`/`LowerThan`/`LowerThanEquals`/
+`GreaterThan`/`GreaterThanEquals`), so test and operator semantics can
+never drift apart. The operator-symbol spellings (`==`, `!=`, ...) are
+deliberately NOT registered: in real Jinja2 they are reachable only as
+string name lookups (e.g. `selectattr("x", "==", 1)`), while
+`{{ 2 is == 3 }}` is a TemplateSyntaxError there, and this fork's
+parser has no way to spell them in an `is` expression either.
+
+Regression specs: `eq` (the full harness case with foo=12/bar="baz"),
+`ne`, `lt`, `le`, `gt`, `ge` in `spec/lib/tests_spec.cr`. Full fork
+spec suite: 709 examples, 0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.34 (2026-09-14): `{% if %}` on a StrictUndefined raises, like real Ansible's bool() on AnsibleUndefined
 
 Real Ansible's Jinja2 environment (AnsibleUndefined, a
