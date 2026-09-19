@@ -174,10 +174,7 @@ class Crinja::Parser::TemplateLexer < Crinja::Parser::BaseLexer
     while true
       char = current_char
       break if char == Char::ZERO
-      if matches_at?(config.block_start_string) &&
-         peek_string?(Symbol::RAW_END, config.block_start_string.size)
-        break
-      end
+      break if matches_raw_end?
 
       @buffer << char
       next_char
@@ -186,9 +183,30 @@ class Crinja::Parser::TemplateLexer < Crinja::Parser::BaseLexer
     @buffer.to_s
   end
 
-  def peek_string?(string, offset = 1)
+  # Real Jinja2 never tokenizes raw content as template syntax: its raw
+  # state (jinja2/lexer.py 3.1.6, `TOKEN_RAW_BEGIN` rule) ends only at the
+  # regex `(?:{%)(\-|\+|)\s*endraw\s*(?:\+%}|\-%}\s*|%}\n?)`, i.e. the
+  # endraw opener may carry a whitespace-control `-`/`+` right after `{%`
+  # (the dash also rstrips the raw data through `OptionalLStrip`, and the
+  # `-%}` forms swallow adjacent whitespace). The differential harness
+  # running real Jinja2 3.1.6's own upstream test suite showed this fork's
+  # old scan only accepted a bare `{% endraw` opener, so `{%- endraw` was
+  # never found and the raw block consumed the rest of the template
+  # ("Unclosed tag, missing: endraw") - while `{%- if -%}...{%- endif -%}`
+  # already parsed fine, isolating this to raw-end detection. Whitespace
+  # control on the `%}` side of both raw tags and on the `{%` side of the
+  # opening tag flows through the same token flags (`trim_left`/`trim_right`/
+  # `plus_*`) every other tag uses, so only the raw-end scan needed to
+  # learn about `-`/`+`.
+  private def matches_raw_end?
+    return false unless matches_at?(config.block_start_string)
+
+    offset = config.block_start_string.size
+    if peek_char(offset) == Symbol::TRIM_WHITESPACE || peek_char(offset) == Symbol::PLUS
+      offset += 1
+    end
     offset = peek_for_whitespace_offset(offset)
-    string.chars.each_with_index(offset) do |char, i|
+    Symbol::RAW_END.chars.each_with_index(offset) do |char, i|
       return false if char != peek_char(i)
     end
     true
