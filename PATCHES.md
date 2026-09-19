@@ -18,6 +18,68 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.41 (2026-09-19): `urlize` filter ported to real Jinja2's detection rules (bare domains, emails, `extra_schemes=`)
+
+Real Jinja2's `urlize` (`jinja2/utils.py#urlize`, verified against the
+installed 3.1.6 source) is not a generic scheme-detection regex: it
+splits the HTML-escaped text on `re.split(r"(\s+)", ...)` and matches
+each candidate against one anchored `_http_re` that accepts ONLY
+`http(s)://` or `www.` plus a plausible domain (TLD of 2+ letters or an
+`xn--` IDNA TLD), a bare domain on a fixed TLD list
+(com/net/int/edu/gov/org/info/mil), or `http(s)://` followed by an IPv4
+or bracketed IPv6 address - plus optional port and
+path/query/fragment. Only those (and emails) get linkified, so
+`{{ "foo ftp://localhost bar"|urlize }}` stays plain text without
+`extra_schemes=`. Schemeless and `www.`-prefixed matches get an
+`https://` href. Emails (`_email_re`) link as `mailto:` - both
+`mailto:x@y.tld` and bare `x@y.tld` - and NEVER carry `rel`/`target`
+attributes, unlike http(s) links. `do_urlize` (jinja2/filters.py) then
+joins the `rel` parts (from the `rel` kwarg, the `nofollow` kwarg and
+the `urlize.rel` policy, default `"noopener"`) into a sorted set, which
+is why `urlize(nofollow=true)` renders `rel="nofollow noopener"`, and
+falls back to the `urlize.extra_schemes` policy for `extra_schemes=`,
+validating each entry against `_uri_scheme_re`
+(`^([\w.+-]{2,}:(/){0,2})$`, raising `FilterArgumentError` otherwise).
+`trim_url_limit` truncates only the DISPLAYED url, appending `...`
+after the first N characters. The input text is escaped with
+`markupsafe.escape` inside `urlize` itself regardless of autoescape, so
+`{{ "http://x/?a=1&b=2"|urlize }}` emits `&amp;` in both href and link
+text, and mailto/extra-scheme hrefs are emitted attribute-less between
+`href` and the trimmed display.
+
+This fork's filter was a port of the rails_autolink `AUTO_LINK_RE`
+heuristic instead: it linked ANY `scheme://` prefix (so it wrongly
+linkified `ftp://localhost` with no `extra_schemes=` - and only
+matched by coincidence when the harness passed `extra_schemes=["tel:",
+"ftp:"]`, while `tel:+1-514-555-1234` was left untouched because
+`extra_schemes=` was never even a kwarg of the filter), missed bare
+domains entirely (`{{ "foo example.org bar"|urlize }}` stayed
+unchanged - found via a differential harness running real Jinja2
+3.1.6's own upstream test suite against this fork), missed
+`mailto:`/bare-email detection, and truncated the display to
+`trim_url_limit - 3` characters instead of appending `...` after
+`trim_url_limit` characters.
+
+`Crinja::Util.urlize` is now a direct port of real Jinja2's
+`urlize`: same `_http_re`/`_email_re` regexes, same
+leading/trailing-punctuation head/tail splitting and parenthesis
+balancing, same branch order (http/www, then `mailto:`, then bare
+email, then `extra_schemes`), same markupsafe-compatible escaping and
+attribute ordering (`href`, then `rel`, then `target`). The filter
+gains the `extra_schemes` kwarg (with the same `_uri_scheme_re`
+validation, raising `Crinja::Arguments::Error`) plus the
+`urlize.extra_schemes` policy fallback, and sorts the `rel` parts like
+real Jinja2. The filter's previous `trim_url_limit` cast also crashed
+on template number literals (Int64), now any `Int` is accepted.
+
+All expected outputs in the new regression specs
+(`spec/lib/filter_spec.cr`, `describe "urlize"`) were verified live
+against real Jinja2 3.1.6 AND a real `ansible-playbook` 2.19 run with
+`debug: msg:` tasks reproducing each case - both render identically
+(`urlize` is a pure string transformation, untouched by Ansible's
+`finalize`/native-types customizations). Full fork spec suite: 734
+examples, 0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.40 (2026-09-19): `min`/`max` compare strings case-insensitively by default, honoring `case_sensitive=true`
 
 Real Jinja2's `do_min`/`do_max` (both `case_sensitive: bool = False` by

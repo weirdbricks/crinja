@@ -384,6 +384,55 @@ describe Crinja::Filter do
         %(foo <a href="http://www.example.com/" rel="noopener" target="_blank">) +
         %(http://www.example.com/</a> bar)
     end
+
+    # Expected outputs verified live against real Jinja2 3.1.6 and a real
+    # ansible-playbook 2.19 run (both render identically).
+    it "urlize bare domain" do
+      evaluate_expression(%("foo example.org bar"|urlize)).should eq \
+        %(foo <a href="https://example.org" rel="noopener">example.org</a> bar)
+      evaluate_expression(%("foo www.example.com bar"|urlize)).should eq \
+        %(foo <a href="https://www.example.com" rel="noopener">www.example.com</a> bar)
+    end
+
+    it "urlize unknown scheme is not linkified without extra_schemes" do
+      evaluate_expression(%("foo ftp://localhost bar"|urlize)).should eq "foo ftp://localhost bar"
+    end
+
+    it "urlize mailto" do
+      evaluate_expression(%("foo mailto:email@example.com bar"|urlize)).should eq \
+        %(foo <a href="mailto:email@example.com">email@example.com</a> bar)
+    end
+
+    it "urlize bare email" do
+      evaluate_expression(%("foo email@example.com bar"|urlize)).should eq \
+        %(foo <a href="mailto:email@example.com">email@example.com</a> bar)
+    end
+
+    it "urlize nofollow is sorted before noopener" do
+      evaluate_expression(%("foo http://www.example.com/ bar"|urlize(nofollow=true))).should eq \
+        %(foo <a href="http://www.example.com/" rel="nofollow noopener">) +
+        %(http://www.example.com/</a> bar)
+    end
+
+    it "urlize escapes html entities in url" do
+      evaluate_expression(%("foo http://example.com/path?a=1&b=2 bar"|urlize)).should eq \
+        %(foo <a href="http://example.com/path?a=1&amp;b=2" rel="noopener">) +
+        %(http://example.com/path?a=1&amp;b=2</a> bar)
+    end
+
+    it "urlize trim_url_limit truncates display after limit chars" do
+      evaluate_expression(%("foo http://example.com/verylongurlthatgoesonandonandon bar"|urlize(trim_url_limit=20))).should eq \
+        %(foo <a href="http://example.com/verylongurlthatgoesonandonandon" rel="noopener">) +
+        %(http://example.com/v...</a> bar)
+    end
+
+    it "urlize extra_schemes" do
+      evaluate_expression(
+        %("foo tel:+1-514-555-1234 ftp://localhost bar"|urlize(extra_schemes=["tel:", "ftp:"]))
+      ).should eq \
+        %(foo <a href="tel:+1-514-555-1234" rel="noopener">tel:+1-514-555-1234</a> ) +
+        %(<a href="ftp://localhost" rel="noopener">ftp://localhost</a> bar)
+    end
   end
 
   it "wordcount" do
