@@ -18,6 +18,58 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.43 (2026-09-19): tuple literal grammar (`()`, `(x,)`) and trailing-comma tolerance in all collection literals
+
+Real Jinja2's parenthesized-expression grammar (jinja2/parser.py,
+verified against the installed 3.1.6 source) is built on
+`parse_tuple(explicit_parentheses=True)`: a lone `LEFT_PAREN` primary is
+parsed by the same comma-loop `parse_tuple` that handles bare
+`a, b` tuples, whose `is_tuple_end` check breaks the element loop on
+`rparen` even with zero elements, and `explicit_parentheses` turns that
+empty result into a `nodes.Tuple` instead of the "Expected an
+expression" failure bare emptiness gets elsewhere. So `()` is a valid
+EMPTY-TUPLE literal, a single element followed by a MANDATORY trailing
+comma `(x,)` is the one-element tuple (without the comma, `(x)` is just
+a parenthesized expression - `parse_tuple` only sets `is_tuple` when it
+sees a comma, so `{{ (1) }}` renders the integer `1`, `{{ (1,) }}` the
+1-tuple), and `(x, y[, ...])` is the multi-element tuple. Real
+Jinja2's other bracketed collection literals tolerate a trailing comma
+by construction: `parse_list` and `parse_dict` re-test `rbracket`/
+`rbrace` immediately after `expect("comma")`, and `parse_call_args`
+even carries an explicit "support for trailing comma" comment.
+
+This fork had no empty-tuple path at all - its paren handling fed the
+bare `RIGHT_PAREN` straight into `parse_expression` and raised
+`Unexpected RIGHT_PAREN` on `{{ () }}`, `{{ (1,) }}` - and its shared
+`parse_expression_list` / dict-literal loops unconditionally tried to
+parse another expression after every comma, so the same error hit
+`{{ (1, 2,) }}`, `{{ [1, 2,] }}` and `{{ {1: 2,} }}` (all found via the
+differential harness running real Jinja2 3.1.6's own upstream test
+suite against this fork). The fix keeps the existing single
+expression-then-comma-loop shape and mirrors real Jinja2's
+comma-then-end-check ordering in all three places: the paren handler
+recognizes `()` before parsing an expression and yields an empty
+`TupleLiteral`, and the expression-list and dict loops stop when the
+end token follows the comma instead of demanding another element. The
+existing `(x)`-is-not-a-tuple distinction was already correct (no
+comma, no `TupleLiteral`) and is preserved; the `()` case is legal only
+inside parens, matching `explicit_parentheses=False` elsewhere.
+
+All expected outputs in the new regression specs
+(`spec/parser/expression_parser_spec.cr`, `spec/crinja_spec.cr`
+"tuple and trailing-comma collection literals") were verified live
+against real Jinja2 3.1.6 AND a real `ansible-playbook` 2.19 run with
+`debug: msg:` tasks reproducing each case: Python tuples are lists to
+Ansible's native-types finalization at rendered-output positions, so
+every tuple renders bracketed (`{{ () }}` -> `[]`, not vanilla Jinja2's
+`()` repr, and `{{ (1,) }}` -> `[1]`), while `{{ (1) }}` renders `1`,
+`{{ (1, 2) == (1, 2) }}` and `{{ (1) == 1 }}` render `True`, and
+`{{ (1,)|length }}` renders `1` - all identical in both engines
+(parsing is pre-finalization, so Ansible's customizations only affect
+the tuple-to-list print form already handled by this fork's
+`Crinja::Tuple` finalizer). Full fork spec suite: 753 examples,
+0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.42 (2026-09-19): `indent` ported to real Jinja2's `do_indent` (no trailing indent, `first`/`blank` kwargs), `trim` honors `chars=`
 
 Real Jinja2's `do_indent(s, width=4, first=False, blank=False)`
