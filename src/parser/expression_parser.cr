@@ -542,7 +542,27 @@ class Crinja::Parser::ExpressionParser
       node = AST::FloatLiteral.new(current_token.value.to_f64).at(current_token.location)
       next_token
     when Kind::STRING
-      node = AST::StringLiteral.new(current_token.value).at(current_token.location)
+      # Real Jinja2 merges adjacent string literals into one string:
+      # `parse_primary` (jinja2/parser.py, 3.1.6) loops on
+      # `self.stream.current.type == "string"` collecting consecutive
+      # STRING tokens into a single `nodes.Const("".join(buf))`, Python's
+      # own adjacent-string-literal syntax (`"foo" "bar"` == `"foobar"`).
+      # Only bare adjacency counts: any non-string token (an operator,
+      # comma, expression end) breaks the loop, so `{{ "foo" ~ "bar" }}`
+      # stays an operator concat and `{{ "foo" }} {{ "bar" }}` stays two
+      # separate print statements. Found via the differential harness
+      # running real Jinja2 3.1.6's upstream suite against this fork
+      # (this fork raised `expression was not fully parsed` on the
+      # second string); verified identical - including inside parens
+      # and list literals - in a real ansible-playbook 2.19 run.
+      values = [current_token.value]
+      end_location = current_token.location
+      while (peek = peek_token?) && peek.kind == Kind::STRING
+        next_token
+        values << current_token.value
+        end_location = current_token.location
+      end
+      node = AST::StringLiteral.new(values.join).at(current_token.location, end_location)
       next_token
     when Kind::BOOL
       node = AST::BooleanLiteral.new(current_token.value.downcase == "true").at(current_token.location)

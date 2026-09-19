@@ -129,4 +129,38 @@ describe Crinja::Parser::ExpressionParser do
     expression.should be_a(Crinja::AST::StringLiteral)
     expression.as(Crinja::AST::StringLiteral).value.should eq %q("foo"'bar')
   end
+
+  # Real Jinja2's parse_primary merges adjacent string literals into a
+  # single string (Python's adjacent-string-literal syntax); all cases
+  # below verified against real Jinja2 3.1.6 and a real
+  # ansible-playbook 2.19 run.
+  it "merges adjacent string literals into one" do
+    expression = parse_expression(%q("foo" "bar"))
+    expression.should be_a(Crinja::AST::StringLiteral)
+    expression.as(Crinja::AST::StringLiteral).value.should eq "foobar"
+  end
+
+  it "merges three adjacent string literals into one" do
+    expression = parse_expression(%q("foo" "bar" "baz"))
+    expression.should be_a(Crinja::AST::StringLiteral)
+    expression.as(Crinja::AST::StringLiteral).value.should eq "foobarbaz"
+  end
+
+  it "merges adjacent string literals with mixed quote styles" do
+    expression = parse_expression(%q("foo" 'bar'))
+    expression.should be_a(Crinja::AST::StringLiteral)
+    expression.as(Crinja::AST::StringLiteral).value.should eq "foobar"
+  end
+
+  it "parses a single string literal unaffected" do
+    expression = parse_expression(%q("foo"))
+    expression.should be_a(Crinja::AST::StringLiteral)
+    expression.as(Crinja::AST::StringLiteral).value.should eq "foo"
+  end
+
+  it "does not merge string literals separated by an operator" do
+    expression = parse_expression(%q("foo" ~ "bar"))
+    expression.should be_a(Crinja::AST::BinaryExpression)
+    expression.as(Crinja::AST::BinaryExpression).operator.should eq "~"
+  end
 end
