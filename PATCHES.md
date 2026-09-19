@@ -18,6 +18,41 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.44 (2026-09-19): adjacent string literals concatenate (`{{ "foo" "bar" }}` -> `foobar`)
+
+Real Jinja2 merges adjacent string literals into one string, exactly
+like Python's own adjacent-string-literal syntax (`"foo" "bar"` is
+`"foobar"`): `parse_primary` (jinja2/parser.py, verified against the
+installed 3.1.6 source) loops on `self.stream.current.type == "string"`
+collecting consecutive STRING tokens from the token stream into a
+single `nodes.Const("".join(buf))` before any AST node is built - so
+the merge is grammar-level, happens inside any expression context
+(inside parens and list literals too), and only fires on BARE
+adjacency: any non-string token (an operator, comma, expression end)
+breaks the loop, so `{{ "foo" ~ "bar" }}` stays an operator concat and
+`{{ "foo" }} {{ "bar" }}` stays two separate print statements.
+
+This fork had no such merge - its string-literal case consumed exactly
+one STRING token and returned, so the second literal was left over and
+the expression parser raised `expression was not fully parsed:
+STRING:"bar"[1:10]` on `{{ "foo" "bar" "baz" }}` (found via the
+differential harness running real Jinja2 3.1.6's own upstream test
+suite against this fork). The fix mirrors real Jinja2's exact scope:
+while parsing a string literal, keep consuming STRING tokens and join
+their values into one `StringLiteral` (spanning all merged tokens for
+location purposes); everything else is untouched, so operator
+concatenation and per-`{{ }}` isolation behave as before. All expected
+outputs in the new regression specs (`spec/parser/
+expression_parser_spec.cr` and `spec/crinja_spec.cr` "adjacent string
+literal concatenation") were verified live against real Jinja2 3.1.6
+AND a real `ansible-playbook` 2.19 run with `debug: msg:` tasks
+reproducing each case (`{{ 'foo' 'bar' 'baz' }}` -> `foobarbaz`,
+`{{ 'foo' }} {{ 'bar' }}` -> `foo bar`, `{{ 'foo' ~ 'bar' }}` ->
+`foobar`, `{{ ['foo' 'bar'] }}` -> `['foobar']` - identical in both
+engines, confirming string-literal adjacency is pure parser grammar
+untouched by Ansible's `finalize`/native-types customizations). Full
+fork spec suite: 769 examples, 0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.43 (2026-09-19): tuple literal grammar (`()`, `(x,)`) and trailing-comma tolerance in all collection literals
 
 Real Jinja2's parenthesized-expression grammar (jinja2/parser.py,
