@@ -1,5 +1,42 @@
 require "xml"
 
+module Crinja::Util
+  # Python's own `str.splitlines()` (no keepends), which real Jinja2's
+  # `do_indent` relies on: every Python line boundary (\n, \r, \r\n,
+  # \v, \f, \x1c, \x1d, \x1e, \x85, \u2028, \u2029) TERMINATES a line,
+  # so consecutive boundaries each produce their own (possibly empty)
+  # line - but a string ending in a single boundary yields NO trailing
+  # empty line (unlike `split("\n")`, which would), and empty input
+  # yields `[]`. That trailing-boundary rule is exactly what keeps
+  # `do_indent` from re-indenting the phantom line after a trailing
+  # newline (crystal-play-0.9.42, differential harness finding).
+  def self.python_splitlines(string : String) : Array(String)
+    boundaries = {'\n', '\u000b', '\u000c', '\u001c', '\u001d', '\u001e', '\u0085', '\u2028', '\u2029'}
+    lines = [] of String
+    buf = IO::Memory.new
+    chars = string.chars
+    i = 0
+    while i < chars.size
+      c = chars[i]
+      if c == '\r'
+        i += 1 if i + 1 < chars.size && chars[i + 1] == '\n'
+        lines << buf.to_s
+        buf.clear
+      elsif boundaries.includes?(c)
+        lines << buf.to_s
+        buf.clear
+      else
+        buf << c
+      end
+      i += 1
+    end
+    lines << buf.to_s unless buf.size == 0
+    lines
+  end
+
+  REGEX_WORD = /\s\-\(\{\[\</
+end
+
 module Crinja::Filter
   Crinja.filter(:upper) { target.to_s.upcase }
 
@@ -31,15 +68,45 @@ module Crinja::Filter
 
   Crinja.filter(:format) { sprintf target.to_s, arguments.varargs }
 
+  # Direct port of real Jinja2's `do_indent(s, width=4, first=False,
+  # blank=False)` (jinja2/filters.py, verified against the installed
+  # 3.1.6 source): append a newline quirk (`s += newline` "necessary for
+  # splitlines method"), split with Python's `str.splitlines()`, then
+  # either join ALL lines with `newline + indention` (blank=true) or
+  # keep the first line bare and prepend `indention` only to non-empty
+  # following lines (blank=false, where the trailing empty line that the
+  # newline quirk creates for input ending in `\n` stays empty - which
+  # is why real Jinja2 does NOT tack an indent after the final newline).
+  # `first` then unconditionally prefixes `indention` - including for a
+  # single-line input with no newline at all, where splitlines still
+  # yields that one line (crystal-play-0.9.42, differential harness
+  # finding: this fork previously regex-gsubbed every `\n` - adding a
+  # trailing indent after the last real newline - and named the second
+  # positional/kwarg `indentfirst`, the pre-2.10 Jinja2 name that Jinja2
+  # 3.x removed, so `first=true` was never read and a newline-less
+  # single line was never indented).
   Crinja.filter({
-    width:       4,
-    indentfirst: false,
+    width: 4,
+    first: false,
+    blank: false,
   }, :indent) do
-    indent = " " * arguments["width"].to_i
-    nl = "\n" + indent
-    string = target.to_s
-    string = indent + string if arguments["indentfirst"].truthy?
-    string.gsub(/\n/, nl)
+    raw_width = arguments["width"].raw
+    indention = raw_width.is_a?(String) ? raw_width : " " * arguments["width"].to_i
+    newline = "\n"
+    string = target.to_s + newline
+
+    lines = Crinja::Util.python_splitlines(string)
+    if arguments["blank"].truthy?
+      rv = lines.join(newline + indention)
+    else
+      rv = lines.shift
+      unless lines.empty?
+        rv += newline + lines.join(newline) { |line| line.empty? ? line : indention + line }
+      end
+    end
+
+    rv = indention + rv if arguments["first"].truthy?
+    rv
   end
 
   # Python `str()` semantics: an explicit `| string` stringifies the
@@ -108,11 +175,22 @@ module Crinja::Filter
     end
   end
 
-  Crinja.filter(:trim) do
+  # Real Jinja2's `do_trim(value, chars=None)` (jinja2/filters.py) is
+  # just `soft_str(value).strip(chars)`: with no `chars=` argument it
+  # strips default whitespace, but an explicit `chars=` string switches
+  # to Python's own `str.strip(chars)` set-of-characters semantics,
+  # stripping ONLY the given characters from both ends and leaving any
+  # other leading/trailing characters (e.g. spaces) untouched.
+  # crystal-play-0.9.42, differential harness finding: this fork
+  # previously ignored `chars=` entirely and always whitespace-stripped
+  # (`" ..stays.."|trim(".")` came back `..stays..` instead of ` ..stays`).
+  Crinja.filter({chars: nil}, :trim) do
     if target.undefined?
       ""
     else
-      target.as_s_or_safe.strip
+      chars = arguments["chars"].raw
+      string = target.as_s_or_safe
+      chars.nil? ? string.strip : string.strip(chars.to_s)
     end
   end
 
@@ -191,8 +269,4 @@ module Crinja::Filter
       end
     end
   end
-end
-
-module Crinja::Util
-  REGEX_WORD = /\s\-\(\{\[\</
 end

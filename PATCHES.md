@@ -18,6 +18,65 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.42 (2026-09-19): `indent` ported to real Jinja2's `do_indent` (no trailing indent, `first`/`blank` kwargs), `trim` honors `chars=`
+
+Real Jinja2's `do_indent(s, width=4, first=False, blank=False)`
+(jinja2/filters.py, verified against the installed 3.1.6 source)
+appends a newline to the input ("this quirk is necessary for
+splitlines method"), splits with Python's `str.splitlines()`, and in
+the default `blank=false` path keeps the first line bare and prepends
+the indent ONLY to non-empty following lines - so the trailing empty
+line that the newline quirk creates for input ending in `\n` stays
+empty, which is why real Jinja2 does NOT tack an indent after the
+final newline (`"\nfoo bar\n\"baz\"\n"|indent(2, false, false)` ->
+`"\n  foo bar\n  \"baz\"\n"`, no trailing `  `). `blank=true` instead
+joins ALL lines with `newline + indention`, so there a trailing
+indent IS expected (`indent(2, false, true)` -> `"\n  foo bar\n
+\"baz\"\n  "`). `first` then unconditionally prefixes the indent -
+including for a single-line input with no newline at all
+(`"jinja"|indent(first=true)` -> `"    jinja"`), because splitlines
+still yields that one line. Found via a differential harness running
+real Jinja2 3.1.6's own upstream test suite against this fork.
+
+This fork's filter instead regex-gsubbed every `\n` with
+`newline + indent` (adding a phantom trailing indent after the last
+real newline) and named the second positional/kwarg `indentfirst` -
+the pre-2.10 Jinja2 argument name that Jinja2 3.x removed in favor of
+`first` - so `first=true` (positional or keyword) was never read and
+a newline-less single line was never indented. The filter is now a
+direct port of `do_indent`: same newline quirk, same splitlines
+semantics (added `Crinja::Util.python_splitlines`, handling every
+Python line boundary incl. `\r\n`, `\r`, `\v`/`\f`/`\x1c`-`\x1e`,
+`\x85`, `\u2028`/`\u2029`, with splitlines' own rule that a single
+trailing boundary yields no empty line), same blank/first branch
+order, and the kwargs are now `width`/`first`/`blank` exactly like
+real Jinja2 (width may also be a string, per the same source).
+
+Real Jinja2's `do_trim(value, chars=None)` is just
+`soft_str(value).strip(chars)`: with no `chars=` argument it strips
+default whitespace, but an explicit `chars=` string switches to
+Python's own `str.strip(chars)` set-of-characters semantics, stripping
+ONLY the given characters from both ends and leaving any other
+leading/trailing characters untouched (`" ..stays.."|trim(chars)` with
+`chars = "."` -> `" ..stays"` - the leading space survives). This fork
+ignored `chars=` entirely and always whitespace-stripped, returning
+`..stays..` unchanged except for whitespace loss - also found via the
+differential harness. The filter now accepts `chars=` (positionally or
+by keyword), passing it through to Crystal's own `String#strip(chars)`,
+which has the same set-of-characters semantics.
+
+Cross-checked BEFORE fixing because a differential finding earlier in
+the session (top-level `None` stringification) turned out to be a
+real-Ansible-vs-vanilla-Jinja2 deliberate difference: a real local
+`ansible-playbook` 2.19 run with `debug: msg:` tasks reproducing every
+case above gives identical output to vanilla Jinja2 3.1.6 (including
+`blank=true`'s trailing indent) - `indent`/`trim` are pure string
+transformations, untouched by Ansible's `finalize`/native-types
+customizations, so the fork genuinely diverged. All expected outputs
+in the new regression specs (`spec/lib/filter_spec.cr`) are from that
+live verification. Full fork spec suite: 749 examples, 0 failures,
+0 errors, 11 pending.
+
 ## crystal-play-0.9.41 (2026-09-19): `urlize` filter ported to real Jinja2's detection rules (bare domains, emails, `extra_schemes=`)
 
 Real Jinja2's `urlize` (`jinja2/utils.py#urlize`, verified against the

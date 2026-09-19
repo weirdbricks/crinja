@@ -27,7 +27,7 @@
 # * `**[forceescape](http://jinja.pocoo.org/docs/2.9/templates/#forceescape)**()`
 # * `**[format](http://jinja.pocoo.org/docs/2.9/templates/#format)**()`
 # * `**[groupby](http://jinja.pocoo.org/docs/2.9/templates/#groupby)**(<em>attribute</em>)`
-# * `**[indent](http://jinja.pocoo.org/docs/2.9/templates/#indent)**(<em>width=4, indentfirst=false</em>)`
+# * `**[indent](http://jinja.pocoo.org/docs/2.9/templates/#indent)**(<em>width=4, first=false, blank=false</em>)`
 # * `**[int](http://jinja.pocoo.org/docs/2.9/templates/#int)**(<em>default=0, base=10</em>)`
 # * `**[join](http://jinja.pocoo.org/docs/2.9/templates/#join)**(<em>separator='', attribute=none</em>)`
 # * `**[last](http://jinja.pocoo.org/docs/2.9/templates/#last)**()`

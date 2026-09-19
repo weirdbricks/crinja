@@ -230,6 +230,36 @@ describe Crinja::Filter do
     evaluate_expression(%(foo|indent(2, true)), {"foo" => text}).should eq "  foo bar foo bar\n  foo bar foo bar"
   end
 
+  describe "indent (crystal-play-0.9.42: port of real Jinja2 do_indent)" do
+    # Expected outputs verified live against real Jinja2 3.1.6 AND a
+    # real ansible-playbook 2.19 run with debug: msg: tasks (indent is
+    # a pure string transformation, untouched by Ansible's
+    # finalize/native-types customizations).
+    it "does not add a trailing indent after the final newline" do
+      foo = %q(\nfoo bar\n"baz"\n).gsub("\\n", "\n")
+      evaluate_expression(%(foo|indent(2, false, false)), {"foo" => foo}).should eq "\n  foo bar\n  \"baz\"\n"
+    end
+
+    it "first=true indents the first line, still no trailing indent" do
+      foo = %q(\nfoo bar\n"baz"\n).gsub("\\n", "\n")
+      evaluate_expression(%(foo|indent(2, true, false)), {"foo" => foo}).should eq "  \n  foo bar\n  \"baz\"\n"
+    end
+
+    it "blank=true indents every line including the phantom trailing line (trailing indent IS expected)" do
+      foo = %q(\nfoo bar\n"baz"\n).gsub("\\n", "\n")
+      evaluate_expression(%(foo|indent(2, false, true)), {"foo" => foo}).should eq "\n  foo bar\n  \"baz\"\n  "
+    end
+
+    it "first=true indents a single-line input with no newline at all" do
+      evaluate_expression(%("jinja"|indent(first=true))).should eq "    jinja"
+      evaluate_expression(%("jinja"|indent(2, true))).should eq "  jinja"
+    end
+
+    it "input not ending in a newline still gets no trailing newline" do
+      evaluate_expression(%("a\nb"|indent(2))).should eq "a\n  b"
+    end
+  end
+
   describe "int" do
     it "base-16" do
       evaluate_expression(%("0x4d32"|int(0, 16))).should eq "19762"
@@ -782,6 +812,46 @@ describe Crinja::Filter do
 
   it "trim" do
     evaluate_expression(%("  foo. \n"|trim)).should eq "foo."
+  end
+
+  describe "trim with chars= (crystal-play-0.9.42: real Jinja2 do_trim(value, chars=None))" do
+    # Expected outputs verified live against real Jinja2 3.1.6 AND a
+    # real ansible-playbook 2.19 run: an explicit chars= argument is
+    # Python str.strip(chars) semantics - it strips ONLY the given
+    # characters from both ends, leaving any other leading/trailing
+    # characters (spaces) untouched. Previously chars= was ignored
+    # entirely and the whitespace-stripping result was returned.
+    it "strips only chars, leaving surrounding spaces untouched" do
+      evaluate_expression(%(foo|trim(chars)), {"foo" => " ..stays..", "chars" => "."}).should eq " ..stays"
+    end
+
+    it "strips only chars from each end" do
+      evaluate_expression(%(foo|trim(chars)), {"foo" => " .stays", "chars" => "."}).should eq " .stays"
+    end
+
+    it "accepts chars positionally" do
+      evaluate_expression(%("..x.."|trim("."))).should eq "x"
+    end
+  end
+
+  describe "trim with chars= (crystal-play-0.9.42: real Jinja2 do_trim(value, chars=None))" do
+    # Expected outputs verified live against real Jinja2 3.1.6 AND a
+    # real ansible-playbook 2.19 run: an explicit chars= argument is
+    # Python str.strip(chars) semantics - it strips ONLY the given
+    # characters from both ends, leaving any other leading/trailing
+    # characters (spaces) untouched. Previously chars= was ignored
+    # entirely and the whitespace-stripping result was returned.
+    it "strips only chars, leaving surrounding spaces untouched" do
+      evaluate_expression(%(foo|trim(chars)), {"foo" => " ..stays..", "chars" => "."}).should eq " ..stays"
+    end
+
+    it "strips only chars from each end" do
+      evaluate_expression(%(foo|trim(chars)), {"foo" => " .stays", "chars" => "."}).should eq " .stays"
+    end
+
+    it "accepts chars positionally" do
+      evaluate_expression(%("..x.."|trim("."))).should eq "x"
+    end
   end
 
   describe "wordwrap" do
