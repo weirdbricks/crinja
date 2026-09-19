@@ -517,7 +517,13 @@ class Crinja::Parser::ExpressionParser
     when Kind::IDENTIFIER
       node = parse_identifier
     when Kind::INTEGER
-      node = AST::IntegerLiteral.new(current_token.value.to_i64).at(current_token.location)
+      # `prefix: true` so the `0x`/`0X`/`0o`/`0O`/`0b`/`0B` integer
+      # literals real Jinja2's `integer_re` accepts (jinja2/lexer.py)
+      # convert the same way Python's own `int(text, 0)` does -
+      # `{{ 0x123abc }}` is 1194684 (differential-harness finding).
+      # Same Int64 value type and same overflow behavior as plain
+      # decimal literals.
+      node = AST::IntegerLiteral.new(current_token.value.to_i64(prefix: true)).at(current_token.location)
       next_token
     when Kind::FLOAT
       node = AST::FloatLiteral.new(current_token.value.to_f64).at(current_token.location)

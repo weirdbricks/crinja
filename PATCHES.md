@@ -18,6 +18,69 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.38 (2026-09-19): numeric literals accept underscore separators, scientific notation and `0x`/`0o`/`0b` bases like real Jinja2
+
+Real Jinja2's numeric grammar lives in two regexes in `jinja2/lexer.py`
+(verified directly against the installed 3.1.6 source): `integer_re`
+matches `0b(_?[0-1])+ | 0o(_?[0-7])+ | 0x(_?[\da-f])+ | [1-9](_?\d)* |
+0(_?0)*` case-insensitively (so `0X`/`0O`/`0B` work too, and one
+underscore may even sit between the base prefix and the first digit -
+`0b_1` renders 1, unlike Python's own literal rules), and `float_re`
+matches digits-with-underscore-groups plus either an optional
+fractional part followed by an `e[+-]?` exponent or a required
+fractional part; underscores are digit-group separators ONLY ever
+between two digits (never leading/trailing/doubled, mirroring Python's
+own numeric-literal rules). Real Jinja2 then converts with Python's own
+`int(text, 0)`-style parsing (which handles the base prefixes
+natively) and `float(text)`. This fork's numeric scanner accepted only
+plain decimal digits: every one of those forms raised
+`Crinja::TemplateSyntaxError: Invalid number. Found char: '_'(95)` /
+`'e'(101)` / `'x'(120)` / `'o'(111)` / `'b'(98)` - found via a
+differential harness running real Jinja2 3.1.6's own upstream test
+suite against this fork (`{{ 12_34_56 }}` -> `123456`,
+`{{ 3_4.5_6 }}` -> `34.56`, `{{ 1_2.3_4e5_6 }}` -> `1.234e+57`,
+`{{ 0_00 }}` -> `0`, `{{ 1e0 }}` -> `1.0`, `{{ 10e1 }}` -> `100.0`,
+`{{ 2.5e100 }}`/`{{ 2.5e+100 }}` -> `2.5e+100`, `{{ 25.6e-10 }}` ->
+`2.56e-09`, `{{ 0x123abc }}`/`{{ 0x12_3abc }}` -> `1194684`,
+`{{ 0o123 }}`/`{{ 0o1_23 }}` -> `83`, `{{ 0b1001_1111 }}` -> `159`).
+
+The scanner now accepts all of it: underscore separators are validated
+between two digits (or once right after a base prefix, Jinja2's own
+`_?`) and never stored in the token value, an `e`/`E` exponent with
+optional sign must be followed by at least one digit (a bare `{{ 1e }}`
+stays a syntax error, exactly like real Jinja2), and a leading `0`
+followed by `x`/`o`/`b` (either case) switches to base digits with the
+prefix kept in the token so the parser converts via Crystal's
+`to_i64(prefix: true)` - the same mechanism its own `int` filter
+already uses, handling `0x`/`0o`/`0b` exactly like Python's
+`int(text, 0)` with the SAME Int64 value type and overflow behavior as
+plain decimal literals (no new overflow class). Genuinely invalid
+input still raises `TemplateSyntaxError` like real Jinja2: trailing or
+doubled underscores (`{{ 1_ }}`, `{{ 1__2 }}`), unsupported prefixes
+(`{{ 0z123 }}`), a bare base prefix (`{{ 0x }}`), out-of-base digits
+(`{{ 0o8 }}`, `{{ 0b2 }}`) and a sign-less/empty exponent
+(`{{ 1e }}`, `{{ 1e+ }}`).
+
+One adjacent rendering fix the same harness case exposed: real Jinja2
+stringifies floats through Python's `repr()` (fixed notation for
+decimal exponents in [-4, 16), otherwise scientific notation with an
+always-signed, at-least-two-digit exponent and a trailing ".0"
+mantissa dropped - `repr(2.56e-09)` is `'2.56e-09'`, `repr(1e16)` is
+`'1e+16'`), while Crystal's own `Float64#to_s` writes `2.56e-9`,
+`1.0e+16`, `1.0e-5` and goes scientific already at `1e15`
+(`repr(1e15)` is `'1000000000000000.0'`). `Finalizer#stringify` now
+normalizes float output to Python's repr notation (digits themselves
+are already identical - both are shortest round-trip; verified a
+16-value battery byte-for-byte against Python 3). Existing small-float
+rendering (`{{ 2.7|round }}` -> `3.0`, `filesizeformat` etc.) is
+unchanged.
+
+Regression specs (`spec/expression/numeric_literal_spec.cr`, expected
+outputs verified live against real Jinja2 3.1.6): all five numeric
+forms above with exact render values plus the still-rejected invalid
+inputs. Full fork spec suite: 720 examples, 0 failures, 0 errors,
+11 pending.
+
 ## crystal-play-0.9.37 (2026-09-19): `loop.previtem`/`loop.nextitem`/`loop.changed()` implemented like real Jinja2's `LoopContext`
 
 Real Jinja2's `LoopContext` (jinja2/runtime.py) keeps `_before`/`_current`/
@@ -53,7 +116,7 @@ this fork's `ForLoop::Recursive` likewise constructs a new loop instance
 per level, so per-instance state gives each level its own previtem/
 nextitem/changed bookkeeping - verified live against Jinja2 3.1.6 with
 `{% for item in seq recursive %}` over a nested `a`/`b` structure rendering
-`[x.1.4<[x.2.3][2.3.x]>][1.4.5][4.5.x<[x.6.x]>]`.
+`[x.1.4<[x.2.3][2.3.x]>][1.4.5][4.5.x<[x.6.x]>]`.42a89249 (Accept underscore separators, scientific notation and 0x/0o/0b integer bases in numeric literals, like real Jinja2)
 
 ## crystal-play-0.9.36 (2026-09-19): `groupby` reads `default=`/`case_sensitive=` kwargs and sorts groups like real Jinja2
 
