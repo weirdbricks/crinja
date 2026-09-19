@@ -335,8 +335,36 @@ module Crinja::Filter
   # `max`/`min` - real Jinja2 core filters. Compares elements with
   # `Value`'s own `<=>` (`Comparable`), matching real Jinja2's general
   # (not numeric-only) comparison.
-  Crinja.filter(:max) { target.each.to_a.max?.try(&.raw) }
-  Crinja.filter(:min) { target.each.to_a.min?.try(&.raw) }
+  #
+  # Real Jinja2's `_min_or_max` (jinja2/filters.py) always feeds Python's
+  # `min`/`max` a key function built by `make_attrgetter(...,
+  # postprocess=ignore_case if not case_sensitive else None)` where
+  # `ignore_case` lowercases string values and passes everything else
+  # through unchanged - so the comparison is case-INsensitive for
+  # strings by default (`case_sensitive` defaults to False in both
+  # `do_min`/`do_max`), and only an explicit `case_sensitive=true` uses
+  # the raw ASCII ordering. This fork previously passed no key function
+  # at all, always comparing raw strings: `{{ ["a", "B"]|min }}` wrongly
+  # returned `B` (0x42 < 0x61) instead of `a`, and `|max` the mirror
+  # image. Confirmed live against real Jinja2 3.1.6 AND a real local
+  # `ansible-playbook` run (both give min=`a`/max=`B` by default and the
+  # flip with `case_sensitive=true`), so this is NOT an
+  # Ansible-environment customization. Python's `min`/`max` return the
+  # first item on ties (e.g. `["a", "A"]` -> `a` for both), which
+  # Crystal's `min_by`/`max_by` match with their first-wins-on-ties
+  # comparison.
+  Crinja.filter({case_sensitive: false}, :max) do
+    case_sensitive = arguments["case_sensitive"].truthy?
+    target.each.to_a.max_by? do |item|
+      !case_sensitive && item.string? ? Value.new(item.as_s.downcase) : item
+    end.try(&.raw)
+  end
+  Crinja.filter({case_sensitive: false}, :min) do
+    case_sensitive = arguments["case_sensitive"].truthy?
+    target.each.to_a.min_by? do |item|
+      !case_sensitive && item.string? ? Value.new(item.as_s.downcase) : item
+    end.try(&.raw)
+  end
 
   # `unique(case_sensitive=false, attribute=none)` - real Jinja2 core
   # filter. Preserves first-occurrence order.

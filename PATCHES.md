@@ -18,6 +18,42 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.40 (2026-09-19): `min`/`max` compare strings case-insensitively by default, honoring `case_sensitive=true`
+
+Real Jinja2's `do_min`/`do_max` (both `case_sensitive: bool = False` by
+default) share `_min_or_max` (jinja2/filters.py, verified against the
+installed 3.1.6 source), which ALWAYS feeds Python's `min`/`max` a key
+function built by `make_attrgetter(..., postprocess=ignore_case if not
+case_sensitive else None)` - and `ignore_case` lowercases string values
+(`str.lower()`) while passing every other type through unchanged. So
+`min`/`max` string comparison is case-INsensitive by default, raw
+ASCII-ordering only with an explicit `case_sensitive=true`, and Python's
+own first-item-on-ties rule applies (min and max both return the first
+item encountered on equal keys). This fork passed no key function at
+all, always comparing raw strings, so `{{ ["a", "B"]|min }}` returned
+`B` (0x42 < 0x61) and `|max` returned `a` - found via a differential
+harness running real Jinja2 3.1.6's own upstream test suite against
+this fork. Cross-checked BEFORE fixing because a differential finding
+on this fork earlier in the session (top-level `None` stringification)
+turned out to be a real-Ansible-vs-vanilla-Jinja2 deliberate difference:
+a real local `ansible-playbook` run with `debug: msg="{{ ['a', 'B']|min
+}}/|max/|min(case_sensitive=true)/|max(case_sensitive=true)"` gives
+`a`/`B`/`B`/`a`, identical to vanilla Jinja2 3.1.6, so this is NOT an
+Ansible-environment customization and the fork genuinely diverged.
+
+The filters now fold string items with `.downcase` (Crystal's
+`str.lower()`) before comparing via `Value`'s existing `<=>`, and
+compare raw when `case_sensitive=true` is passed explicitly. The
+`attribute=` kwarg real Jinja2 also supports was deliberately NOT added
+(this fork never had it and nothing depends on it); numeric and dict-key
+comparisons are unaffected since the fold only touches string items.
+Regression specs (`spec/lib/filter_spec.cr`, expected outputs verified
+live against real Jinja2 3.1.6): the two confirmed string cases, both
+orderings, the case-insensitive-tie first-item rule (`["a", "A"]` ->
+`a`/`a`), the `case_sensitive=true` flip (including the raw-ASCII tie
+result `A`/`a`), and a plain numeric list sanity check. Full fork spec
+suite: 730 examples, 0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.39 (2026-09-19): Python-style chained comparisons (`a < b < c`) supported with real short-circuit semantics
 
 Real Jinja2's own grammar (verified against the installed 3.1.6 source,
