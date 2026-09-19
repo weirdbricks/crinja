@@ -69,6 +69,57 @@ struct Crinja::Finalizer
     end
   end
 
+  # Real Jinja2 (via Python's `str()`/`repr()`, identical for floats in
+  # Python 3) renders a bare float with fixed notation for decimal
+  # exponents in [-4, 16) and scientific notation with an ALWAYS signed,
+  # at-least-two-digit exponent outside it, dropping a trailing ".0"
+  # mantissa in scientific form (`repr(1e16)` is '1e+16',
+  # `repr(2.56e-09)` is '2.56e-09'). Crystal's own `Float64#to_s`
+  # formats several of these differently (`2.56e-9`, `1.0e+16`,
+  # `1.0e-5`, and goes scientific already at `1e15`), so real-Jinja2
+  # numeric literals in scientific notation diverged - found via a
+  # differential harness running real Jinja2 3.1.6's own upstream test
+  # suite against this fork (`{{ 25.6e-10 }}` must render `2.56e-09`).
+  # The digits come from Crystal's `to_s` (shortest round-trip, the same
+  # digits Python's repr produces); only the notation is normalized.
+  protected def stringify(raw : Float64)
+    string = raw.to_s
+    e_index = string.index('e')
+    unless e_index
+      @io << string
+      return
+    end
+
+    mantissa = string[0...e_index]
+    exponent = string[(e_index + 1)..].to_i
+
+    if exponent < -4 || exponent >= 16
+      mantissa = mantissa[0...-2] if mantissa.ends_with?(".0")
+      sign = exponent < 0 ? "-" : "+"
+      digits = exponent.abs.to_s
+      digits = "0#{digits}" if digits.size < 2
+      @io << mantissa << 'e' << sign << digits
+      return
+    end
+
+    # Python's repr keeps fixed notation for these exponents even where
+    # Crystal's `to_s` went scientific (`repr(1e15)` is
+    # '1000000000000000.0', not '1.0e+15') - reconstruct it from the
+    # shortest-round-trip digits.
+    sign = mantissa.starts_with?('-') ? "-" : ""
+    mantissa = mantissa.lstrip('-')
+    int_digits = mantissa.index('.') || mantissa.size
+    digits = mantissa.delete('.')
+    point = int_digits + exponent
+    if point <= 0
+      @io << sign << "0." << ("0" * -point) << digits
+    elsif point >= digits.size
+      @io << sign << digits << ("0" * (point - digits.size)) << ".0"
+    else
+      @io << sign << digits[0...point] << '.' << digits[point..]
+    end
+  end
+
   # Convert an `Array` to string.
   protected def stringify(array : Array)
     @inside_struct = true
