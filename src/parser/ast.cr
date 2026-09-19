@@ -115,22 +115,48 @@ module Crinja::AST
     operator : String,
     right : ExpressionNode
 
-  expression_node CallExpression,
-    identifier : ExpressionNode,
-    argumentlist : ExpressionList,
-    keyword_arguments : Hash(IdentifierLiteral, ExpressionNode)
+  # The `dynamic_kwargs` field is real Jinja2's `**mapping` call-argument
+  # slot (`nodes.Call.dyn_kwargs`, a single optional expression):
+  # `parse_call_args` (jinja2/parser.py) recognizes a `pow` token in the
+  # argument list and expands the mapping into keyword arguments at call
+  # time. Nilable because real Jinja2's own AST leaves it `Optional` -
+  # absent for every call without a `**` splat. The positional `*expr`
+  # splat needs no extra slot: it is kept inline as a `SplashOperator`
+  # child of the argument list, whose evaluator already expands it in
+  # place, and the call-args grammar (see `parse_call_expression`) never
+  # places a plain positional argument after it, so expansion order is
+  # real Jinja2's own codegen order (plain args, then `*dyn_args`).
+  class CallExpression < ExpressionNode
+    property identifier : ExpressionNode
+    property argumentlist : ExpressionList
+    property keyword_arguments : Hash(IdentifierLiteral, ExpressionNode)
+    property dynamic_kwargs : ExpressionNode?
 
-  expression_node FilterExpression,
-    target : ExpressionNode,
-    identifier : IdentifierLiteral,
-    argumentlist : ExpressionList,
-    keyword_arguments : Hash(IdentifierLiteral, ExpressionNode)
+    def initialize(@identifier, @argumentlist, @keyword_arguments, @dynamic_kwargs = nil)
+    end
+  end
 
-  expression_node TestExpression,
-    target : ExpressionNode,
-    identifier : IdentifierLiteral,
-    argumentlist : ExpressionList,
-    keyword_arguments : Hash(IdentifierLiteral, ExpressionNode)
+  class FilterExpression < ExpressionNode
+    property target : ExpressionNode
+    property identifier : IdentifierLiteral
+    property argumentlist : ExpressionList
+    property keyword_arguments : Hash(IdentifierLiteral, ExpressionNode)
+    property dynamic_kwargs : ExpressionNode?
+
+    def initialize(@target, @identifier, @argumentlist, @keyword_arguments, @dynamic_kwargs = nil)
+    end
+  end
+
+  class TestExpression < ExpressionNode
+    property target : ExpressionNode
+    property identifier : IdentifierLiteral
+    property argumentlist : ExpressionList
+    property keyword_arguments : Hash(IdentifierLiteral, ExpressionNode)
+    property dynamic_kwargs : ExpressionNode?
+
+    def initialize(@target, @identifier, @argumentlist, @keyword_arguments, @dynamic_kwargs = nil)
+    end
+  end
 
   expression_node MemberExpression,
     identifier : ExpressionNode,

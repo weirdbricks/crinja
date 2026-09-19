@@ -38,7 +38,7 @@ class Crinja::Tag::Filter < Crinja::Tag
           call = parse_call_expression(identifier, with_parenthesis: false)
         end
 
-        left = AST::FilterExpression.new(left, identifier, call.argumentlist, call.keyword_arguments).at(left, call)
+        left = AST::FilterExpression.new(left, identifier, call.argumentlist, call.keyword_arguments, call.dynamic_kwargs).at(left, call)
 
         if current_token.kind != Kind::PIPE
           break
