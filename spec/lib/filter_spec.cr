@@ -512,6 +512,61 @@ describe Crinja::Filter do
         TPL
         {articles: articles}).should eq "1970[aha][interesting][really?]|1971[totally not]|"
     end
+
+    # Expected outputs verified live against real Jinja2 3.1.6's own
+    # `do_groupby` (sorted + itertools.groupby, case-folded key unless
+    # case_sensitive=true).
+    it "case_insensitive (default) merges case-variant keys into one sorted group" do
+      bindings = {"data" => [{"k" => "a", "v" => 1}, {"k" => "b", "v" => 2}, {"k" => "A", "v" => 3}]}
+      render(<<-'TPL',
+        {%- for k, vs in data|groupby('k', case_sensitive=false) -%}
+        {{ k }}: {{ vs|map(attribute='v')|join(', ') }}|
+        {%- endfor %}
+        TPL
+        bindings).should eq "a: 1, 3|b: 2|"
+    end
+
+    it "case_sensitive keeps case-variant keys separate, sorted by raw value" do
+      bindings = {"data" => [{"k" => "a", "v" => 1}, {"k" => "b", "v" => 2}, {"k" => "A", "v" => 3}]}
+      render(<<-'TPL',
+        {%- for k, vs in data|groupby('k', case_sensitive=true) -%}
+        {{ k }}: {{ vs|map(attribute='v')|join(', ') }}|
+        {%- endfor %}
+        TPL
+        bindings).should eq "A: 3|a: 1|b: 2|"
+    end
+
+    it "default catches an item missing the attribute into that named group" do
+      bindings = {"users" => [{"name" => "emma", "city" => "NY"}, {"name" => "smith", "city" => "WA"}, {"name" => "john"}]}
+      render(<<-'TPL',
+        {%- for city, items in users|groupby('city', default='NY') -%}
+        {{ city }}: {{ items|map(attribute='name')|join(', ') }}|
+        {%- endfor %}
+        TPL
+        bindings).should eq "NY: emma, john|WA: smith|"
+    end
+
+    it "missing attribute without default raises UndefinedError" do
+      bindings = {"users" => [{"name" => "emma", "city" => "NY"}, {"name" => "john"}]}
+      expect_raises(Crinja::UndefinedError) do
+        render(<<-'TPL',
+          {%- for city, items in users|groupby('city') -%}
+          {{ city }}: {{ items|map(attribute='name')|join(', ') }}|
+          {%- endfor %}
+          TPL
+          bindings)
+      end
+    end
+
+    it "grouper and list are accessible as attributes" do
+      bindings = {"users" => [{"name" => "emma", "city" => "NY"}, {"name" => "smith", "city" => "WA"}]}
+      render(<<-'TPL',
+        {%- for g in users|groupby('city') -%}
+        {{ g.grouper }}: {{ g.list|map(attribute='name')|join(', ') }}|
+        {%- endfor %}
+        TPL
+        bindings).should eq "NY: emma|WA: smith|"
+    end
   end
 
   it "replace" do

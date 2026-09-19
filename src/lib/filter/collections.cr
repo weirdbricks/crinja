@@ -235,19 +235,101 @@ module Crinja::Filter
     Crinja::Filter.select_reject_attr(:reject)
   end
 
-  Crinja.filter({attribute: UNDEFINED}, :groupby) do
-    attribute = arguments["attribute"]
+  # Real Jinja2's `do_groupby` yields `(grouper, list)` namedtuples
+  # (`_GroupTuple`), not a mapping - its own docstring documents BOTH
+  # consumption forms, tuple unpacking (`{% for grouper, list in ... %}`)
+  # and attribute access (`group.grouper`, `group.list`). A plain 2-tuple
+  # subclass covers the unpacking form via the for tag's existing pair
+  # handling; overriding `crinja_attribute` adds the attribute form,
+  # which a Dictionary-shaped result (this fork's previous return value)
+  # could never provide.
+  class GroupTuple < Crinja::Tuple
+    def initialize(grouper : Value, list : Value)
+      super([grouper, list] of Value)
+    end
 
-    Dictionary.new.tap do |dict|
-      target.each do |item|
-        value = Crinja::Value.new Resolver.resolve_dig(attribute, item)
-        if dict.has_key?(value)
-          dict[value].as_a.push(item)
-        else
-          dict[value] = Crinja::Value.new [item] of Value
-        end
+    def grouper
+      self[0]
+    end
+
+    def list
+      self[1]
+    end
+
+    def crinja_attribute(attr : Crinja::Value) : Crinja::Value
+      case attr.to_s
+      when "grouper" then grouper
+      when "list"    then list
+      else
+        Crinja::Value.new(Crinja::Undefined.new(attr.to_s))
       end
     end
+  end
+
+  # Real Jinja2's `do_groupby` sorts the items by the attribute value
+  # FIRST and only then runs Python's `itertools.groupby`, which merges
+  # ADJACENT equal keys - the pre-sort is what both orders the groups by
+  # key and collapses every equal key into one group. With
+  # `case_sensitive=false` (the default) the sort AND group key is the
+  # attribute value case-folded via `.lower()` (strings only -
+  # `ignore_case` checks `isinstance(value, str)` before folding), and
+  # the emitted `grouper` is re-derived from the group's FIRST item with
+  # an unfolded attrgetter (`out = [_GroupTuple(output_expr(values[0]),
+  # values) ...]`), so "a" and "A" merge into one group keyed by
+  # whichever original value sorted first. An item missing the attribute
+  # entirely falls back to the `default=` kwarg when given; without one,
+  # real Jinja2 raises UndefinedError even in the default lenient
+  # environment - the sort key becomes an Undefined marker and comparing
+  # markers inside `sorted()` fails (verified live against Jinja2 3.1.6:
+  # `'dict object' has no attribute 'city'`). This fork previously read
+  # NEITHER kwarg and grouped an unsorted sequence by exact key in
+  # insertion order, producing a separate empty-key group for missing
+  # attributes and the wrong order/grouping even for the default
+  # case-insensitive request; found via a differential harness running
+  # real Jinja2 3.1.6's own upstream test suite against this fork.
+  Crinja.filter({attribute: UNDEFINED, default: UNDEFINED, case_sensitive: false}, :groupby) do
+    attribute = arguments["attribute"]
+    case_sensitive = arguments["case_sensitive"].truthy?
+    default = arguments["default"]
+    has_default = arguments.is_set?("default") && !default.none?
+
+    # (item, unfolded key, sort/group key, original index) - the index
+    # tiebreak keeps the sort stable like Python's `sorted()`, which
+    # `do_groupby` relies on both for within-group order and for which
+    # item donates the case-insensitive group's `grouper`.
+    entries = [] of ::Tuple(Value, Value, Value, Int32)
+
+    target.to_a.each_with_index do |item, index|
+      key = Resolver.resolve_dig(attribute, item)
+      if (undefined = key.raw).is_a?(Undefined)
+        raise UndefinedError.new(undefined.name) unless has_default
+        key = default
+      end
+      sort_key = if !case_sensitive && key.string?
+                   Value.new(key.as_s.downcase)
+                 else
+                   key
+                 end
+      entries << {item, key, sort_key, index}
+    end
+
+    sorted = entries.sort_by { |entry| {entry[2], entry[3]} }
+
+    result = [] of Value
+    index = 0
+    while index < sorted.size
+      sort_key = sorted[index][2]
+      group = [sorted[index][0]]
+      index += 1
+      while index < sorted.size && sorted[index][2] == sort_key
+        group << sorted[index][0]
+        index += 1
+      end
+      grouper = case_sensitive ? sort_key : sorted[index - group.size][1]
+      result << Value.new(GroupTuple.new(grouper, Value.new(group)))
+    end
+
+    result
   end
 
   # `max`/`min` - real Jinja2 core filters. Compares elements with
