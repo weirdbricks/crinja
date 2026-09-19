@@ -18,6 +18,54 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.45 (2026-09-19): `{%- raw -%}`/`{% endraw -%}` whitespace-control modifiers on raw blocks
+
+Real Jinja2 never tokenizes raw content as template syntax: its raw block
+is a special lexer state (jinja2/lexer.py 3.1.6) reached from a
+`raw_begin` alternative in the root regex, `{%(\-|\+|)\s*raw\s*(?:-%}\s*|%})`,
+and exited only at the raw state's own rule,
+`(?:{%)(\-|\+|)\s*endraw\s*(?:\+%}|-%}\s*|%}\n?)` - so the whitespace-control
+dashes are baked into those raw-scanning regexes themselves, not applied by
+the generic tag mechanism afterwards. Two consequences verified directly
+against a real `jinja2.Environment` (3.1.6) AND a real `ansible-playbook`
+2.19 run (`debug: msg:` tasks, outputs identical in both): `raw -%}` swallows
+the whitespace right after the opening tag and `{%- endraw` rstrips the raw
+data (`OptionalLStrip`), so `1  {%- raw -%}   2   {%- endraw -%}   3` renders
+`123` with both content EDGES trimmed, while trim_blocks/lstrip_blocks
+config NEVER touches raw content (`{% raw %}\n  2\n  {% endraw %}` keeps both
+edges under either setting, where the same `{% if %}` block loses them).
+One regex quirk: raw_begin's closing side accepts only `-%}` or `%}`, so
+real Jinja2 rejects `raw +%}` ("unknown tag 'raw'") even though it accepts
+`+%}` on every other tag's `%}`; this fork's generic tag-end machinery
+already accepts `+%}` everywhere, and that (benign-superset) behavior was
+kept rather than special-cased away.
+
+This fork's raw-end scan (`consume_raw`) only accepted a bare
+`{% endraw` opener - it whitespace-skipped after `{%` but never allowed the
+`-`/`+` marker - so `{%- endraw` was never found, the raw block consumed the
+rest of the template, and `1  {%- raw -%}   2   {%- endraw -%}   3` raised
+`Unclosed tag, missing: endraw` (also `{%+ endraw`, also found via the
+differential harness running real Jinja2 3.1.6's own upstream test suite;
+`{%- if true -%}...{%- endif -%}` parsed fine throughout, isolating the bug
+to raw-end detection, not a general whitespace-control regression). And
+`Tag::Raw#interpret` printed the content node verbatim, so even where the
+lexer/parser DID record the dash flags on the raw content's FixedString
+node (from the opening tag's `-%}` and the endraw tag's `{%-`), they were
+silently dropped - the reason `raw -%}`/`{%- endraw` never trimmed the
+content edges. The raw-end scan now accepts an optional `-`/`+` after `{%`
+before `endraw` (same shapes as real Jinja2's raw-state regex), and the raw
+tag's interpreter applies ONLY the explicit `trim_left`/`trim_right` flags
+(full lstrip/rstrip, same strong semantics as every other tag's `-` side)
+while continuing to bypass the implicit trim_blocks/lstrip_blocks config,
+matching real Jinja2 exactly.
+
+All expected outputs in the new regression specs
+(`spec/tags/raw_spec.cr`: the confirmed 3-part `123` case, the plain
+sanity case, one-sided `{%- raw %}...{% endraw -%}`, `{%- endraw` rstrip,
+config-immunity under trim_blocks/lstrip_blocks, and `+` variants) were
+verified live against real Jinja2 3.1.6 AND a real `ansible-playbook` run.
+Full fork spec suite: 770 examples, 0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.44 (2026-09-19): adjacent string literals concatenate (`{{ "foo" "bar" }}` -> `foobar`)
 
 Real Jinja2 merges adjacent string literals into one string, exactly
