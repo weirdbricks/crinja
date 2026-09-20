@@ -147,8 +147,27 @@ module Crinja::Filter
     end
   end
 
+  # Real Jinja2's `do_random` (jinja2/filters.py 3.1.6) is just Python's
+  # `random.choice(seq)`: a STRING target is treated as an iterable of its
+  # own characters (`random.choice("1234567890")` returns one of "0".."9"),
+  # an empty sequence hits the IndexError that `do_random` catches and
+  # turns into `context.environment.undefined("No random item, sequence
+  # was empty.")` - confirmed live, and confirmed against a real local
+  # `ansible-playbook` 2.19 run (`ansible.builtin.random` calls
+  # `r.choice(end)` on any `__iter__` target, identical character
+  # semantics for strings). The previous implementation assumed the raw
+  # value was already a Crystal `Indexable`, so a plain `String` (not
+  # `Indexable`) raised `TypeCastError: Cast from String to Indexable(T)
+  # failed` instead of returning a character - found by the differential
+  # test harness against real Jinja2 3.1.6's own upstream test suite.
+  # Converting through `Value#to_a` (chars for a string, items for any
+  # iterable, TypeError "can't iterate over undefined" for an Undefined
+  # target, matching real Jinja2's own failure on `undefined|random`)
+  # restores all of that; a dict target iterating keys-only stays as the
+  # fork's pre-existing behavior.
   Crinja.filter(:random) do
-    target.as_indexable.sample
+    choices = target.to_a
+    choices.empty? ? UNDEFINED : choices.sample
   end
 
   Crinja.filter(:map) do

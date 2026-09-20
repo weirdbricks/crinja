@@ -18,6 +18,53 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.48 (2026-09-19): `random` filter on a string target
+
+Real Jinja2's `do_random` (jinja2/filters.py 3.1.6, read from the
+installed source) is just Python's `random.choice(seq)` wrapped in a
+single `except IndexError` that returns
+`context.environment.undefined("No random item, sequence was empty.")`.
+`random.choice` subscripts its argument (`seq[self._randbelow(len(seq))]`),
+so a STRING target is treated as an iterable of its own characters -
+`{{ "1234567890"|random }}` returns one of the characters `"0"` through
+`"9"` at random - and an empty sequence becomes an `Undefined`, not an
+error. Both verified live against real Jinja2 3.1.6 (repeated renders of
+the string case produced `1 2 3 2 4 5`; `{{ []|random }}` renders `""`).
+Confirmed against a real local `ansible-playbook` 2.19 run as well:
+`ansible.builtin.random` (`rand` in `ansible/plugins/filter/core.py`)
+dispatches to `r.choice(end)` for any `__iter__` target with identical
+string semantics (`debug: msg: "{{ '1234567890'|random }}"` -> `"3"`).
+One live-verified divergence worth noting: on an EMPTY sequence ansible
+2.19 surfaces Python's own `Cannot choose from an empty sequence`
+IndexError as a task failure, because `rand` calls `r.choice` without
+`do_random`'s IndexError catch, while vanilla Jinja2 returns `Undefined`;
+per the fork's convention this patch follows real Jinja2's `do_random`
+semantics (Undefined for empty), which is what the differential harness
+grounds truth on. (Also out of scope, also divergent: ansible's `rand`
+additionally accepts integer targets and `start`/`step`/`seed`
+arguments; neither is claimed by this fix.)
+
+This fork's `random` filter was `target.as_indexable.sample`, i.e. it
+assumed the raw value was already a Crystal `Indexable` - true for
+arrays, but a plain Crystal `String` is not `Indexable`, so
+`{{ "1234567890"|random }}` raised `TypeCastError: Cast from String to
+Indexable(T) failed` (at `src/runtime/value.cr:394`) instead of
+returning a character. Found by the differential test harness against
+real Jinja2 3.1.6's own upstream test suite. The fix converts the target
+through `Value#to_a` (chars for a string, items for any iterable, keys
+for a dict - the fork's pre-existing keys-only dict behavior is
+unchanged, though real Jinja2's `do_random` actually raises a KeyError
+there since `random.choice` subscripts) and samples from that array;
+`Value#to_a` raises `TypeError: can't iterate over undefined` for an
+Undefined target, matching real Jinja2's own failure on
+`undefined|random`. An empty result returns `UNDEFINED`, exactly
+`do_random`'s empty-sequence branch. New regression specs in
+`spec/lib/filter_spec.cr` (string target, list target, empty sequence)
+assert membership over repeated calls rather than a single hardcoded
+value, since real randomness can't be pinned exactly - the same
+convention the pre-existing range-target `random` spec already used.
+Full fork spec suite: 803 examples, 0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.47 (2026-09-19): function-call argument splats (`*expr`/`**expr`) at call sites
 
 Real Jinja2's `parse_call_args` (jinja2/parser.py 3.1.6, verified against
