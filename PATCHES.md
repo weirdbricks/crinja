@@ -64,6 +64,62 @@ via a context value); the stale `&quot;` expectations in the `tojson`
 under-autoescape specs and `spec/crinja_spec.cr`'s autoescape literal
 render were corrected to the real-engine `&#34;` form. Full fork spec
 suite: 815 examples, 0 failures, 0 errors, 11 pending.
+## crystal-play-0.9.52 (2026-09-19): full Jinja2 `unicode-escape` decoding for string literals in template files
+
+String literals inside `.j2` templates only decoded a tiny subset of
+Python's escapes (`\n`, `\\`, `\'`, `\"`) and passed every other escape
+through verbatim on the theory that `'\1'` had to survive as a literal
+regex backreference for real Ansible's `regex_search`/`regex_replace`.
+That theory was wrong for the code path this shard actually serves.
+
+Scope note first: real ansible-core 2.19 treats string escapes
+differently by context, and the difference matters. For **inline `{{ }}`
+string literals in YAML task args** (e.g. `debug: msg: "{{ '\1' }}"`),
+Ansible's own `AnsibleLexer`
+(`ansible/_internal/_templating/_jinja_bits.py`) doubles every backslash
+in the token *before* Jinja's decode step, so the net effect is verbatim
+passthrough - `'\1'` stays a two-character backreference. But **`.j2`
+template FILES** (the `template:` action and `lookup('template', ...)`)
+go through an unmodified vanilla-Jinja2 lexer with no backslash
+doubling, and krikri renders its template files through THIS shard
+while its inline task params are handled by krikri's own hand-rolled
+evaluator elsewhere - so the template-file behavior is the only one
+Crinja must reproduce.
+
+That template-file behavior was verified live with a real
+`ansible-playbook` 2.19.11 run (`script -qec` over a playbook with a
+`template:` action plus a `lookup('template', ...)` cross-check, files
+written to disk with literal backslashes): in a `.j2` file, BOTH `{{ }}`
+expressions and `{% %}` statements decode with full vanilla Jinja2
+3.1.6 semantics, i.e. exactly Python's `unicode-escape` codec (which is
+what jinja2/lexer.py applies to every string token):
+`{{ "\t" }}` → a real tab, `{{ "\1" }}` and `{% set y = "\1" %}{{ y }}`
+→ chr(1) (octal!), `{{ "\101" }}` → `A`, `{{ "\x41" }}`/`{{ "\u0042" }}`/
+`{{ "\U00000043" }}` → `A`/`B`/`C`, `{{ "\0" }}` → NUL,
+`{% if "a\tb" | length == 3 %}` is true (the tab decodes inside tag
+conditionals too), while unknown escapes stay literal: `{{ "\q" }}` and
+`{{ "foo(\d+)" }}` keep their backslashes (so regex patterns still
+survive intact - `\d` was never a valid escape and never will be; the
+backreference-shaped `\1` is the only casualty, and real Ansible
+decodes it to chr(1) in template files just the same). Real Jinja2 also
+hard-fails truncated unicode escapes (`TemplateSyntaxError: truncated
+\xXX escape` for `"\xg1"`, likewise `"\u00"`, `"\U0001"`) rather than
+passing them through, and decodes octal beyond a byte (`"\777"` →
+U+01FF) - both reproduced.
+
+So `BaseLexer#consume_string` (the one string-literal lexer both `{{ }}`
+and `{% %}` flow through) now implements the full `unicode-escape` set:
+the C escapes (`\a \b \t \n \v \f \r \\ \' \"`), octal `\0`-`\777`
+(one to three octal digits, first digit `0`-`7`; `\8`/`\9` are unknown
+escapes and pass through literally), `\xHH`, `\uHHHH`, `\UHHHHHHHH`,
+with literal passthrough for everything else and
+`Crinja::TemplateSyntaxError` for truncated hex/unicode escapes,
+matching real Jinja2 3.1.6 exactly. No `{{ }}` vs `{% %}` context
+tracking is needed in the lexer since real Ansible decodes both alike
+in template files. Regression specs cover the tab/octal/hex/unicode/
+unknown-escape/truncated-escape matrix at both the expression-parser
+and full-template-render level
+(`spec/parser/expression_parser_spec.cr`).
 
 ## crystal-play-0.9.50 (2026-09-19): `int` filter BigInt parsing + `base=` kwarg honored
 
