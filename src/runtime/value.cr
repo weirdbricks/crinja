@@ -618,6 +618,23 @@ struct Crinja::Value
     @raw.is_a?(Number)
   end
 
+  # Returns `true` if this value can be an arithmetic operand. Python's
+  # `bool` is a subtype of `int` (`True == 1`, `False == 0`), so a Bool
+  # is accepted wherever a number is - but only for arithmetic; string
+  # formatting still shows `True`/`False`.
+  def arith_number?
+    @raw.is_a?(Number) || @raw.is_a?(Bool)
+  end
+
+  def as_arith_number : Number
+    raw = @raw
+    if raw.is_a?(Bool)
+      raw ? 1 : 0
+    else
+      raw_as(Number)
+    end
+  end
+
   # Returns `true` if the value is a sequence.
   # TODO: Improve implementation based on crinja_item
   def sequence?

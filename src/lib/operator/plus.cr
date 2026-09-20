@@ -5,8 +5,8 @@ class Crinja::Operator
     name "+"
 
     def value(env : Crinja, op1 : Value, op2 : Value)
-      if op1.number? && op2.number?
-        op1.as_number + op2.as_number
+      if op1.arith_number? && op2.arith_number?
+        op1.as_arith_number + op2.as_arith_number
       elsif op1.raw.is_a?(Time) && op2.raw.is_a?(Crinja::TimeDelta)
         # Real Ansible's `to_datetime(...) + timedelta`-shaped idiom
         # (Python's `datetime + timedelta`) - the `TimeDelta` operand
@@ -35,8 +35,8 @@ class Crinja::Operator
     end
 
     def value(env, op)
-      if op.number?
-        op.as_number
+      if op.arith_number?
+        op.as_arith_number
       else
         raise Arguments::Error.new(self, "Operators needs to be numeric")
       end

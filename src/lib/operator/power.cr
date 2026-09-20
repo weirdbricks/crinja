@@ -4,9 +4,9 @@ class Crinja::Operator
     name "**"
 
     def value(env : Crinja, op1, op2)
-      if op1.number? && op2.number?
-        base = op1.as_number
-        power = op2.as_number
+      if op1.arith_number? && op2.arith_number?
+        base = op1.as_arith_number
+        power = op2.as_arith_number
         if power < 0
           base ** power.to_f
         else
