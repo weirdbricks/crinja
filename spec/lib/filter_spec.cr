@@ -397,7 +397,61 @@ describe Crinja::Filter do
 
   it "pprint" do
     data = Range.new(0, 1000, true)
-    evaluate_expression(%(data|pprint), {data: data}).should eq data.to_a.pretty_inspect
+    # Real ansible-core 2.19 passes its own lazy-container types into
+    # pprint, so pprint's list dispatcher (which would break the output
+    # one item per line past 80 columns) never engages: a long list
+    # renders as one single-line repr (verified live against
+    # ansible-playbook 2.19.11).
+    evaluate_expression(%(data|pprint), {data: data}).should eq "[#{data.to_a.join(", ")}]"
+  end
+
+  # Real Jinja2's do_pprint is Python's pprint.pformat, which reprs
+  # strings with Python's repr() quoting: single quotes preferred, double
+  # quotes only when the string contains a single quote but no double
+  # quote, and escaped apostrophes when both are present.
+  it "pprint quotes strings Python repr style" do
+    evaluate_expression(%('foo'|pprint)).should eq "'foo'"
+    evaluate_expression(%('bär'|pprint)).should eq "'bär'"
+    evaluate_expression(%("it's"|pprint)).should eq %("it's")
+    evaluate_expression(%('he said "hi"'|pprint)).should eq %q{'he said "hi"'}
+    evaluate_expression(%('both \\' and "'|pprint)).should eq %q{'both \' and "'}
+  end
+
+  it "pprint escapes control characters Python repr style" do
+    evaluate_expression(%('a\\x07b'|pprint)).should eq "'a\\x07b'"
+    evaluate_expression(%('new\\nline'|pprint)).should eq "'new\\nline'"
+    evaluate_expression(%('back\\\\slash'|pprint)).should eq "'back\\\\slash'"
+    evaluate_expression(%('tab\\there'|pprint)).should eq "'tab\\there'"
+  end
+
+  it "pprint renders other scalar types Python repr style" do
+    evaluate_expression(%(true|pprint)).should eq "True"
+    evaluate_expression(%(false|pprint)).should eq "False"
+    evaluate_expression(%(none|pprint)).should eq "None"
+    evaluate_expression(%(42|pprint)).should eq "42"
+    evaluate_expression(%(3.5|pprint)).should eq "3.5"
+    evaluate_expression(%(1e20|pprint)).should eq "1e+20"
+    evaluate_expression(%(1e15|pprint)).should eq "1000000000000000.0"
+  end
+
+  it "pprint renders containers Python repr style" do
+    evaluate_expression(%([1, 'a', true, none]|pprint)).should eq "[1, 'a', True, None]"
+    # Real ansible-core 2.19's lazy dicts bypass pprint's dict dispatcher,
+    # so pprint's sort_dicts=True never engages: insertion order, not
+    # vanilla pprint's sorted output (verified live).
+    evaluate_expression(%({'b': 1, 'a': 2}|pprint)).should eq "{'b': 1, 'a': 2}"
+    evaluate_expression(%({'k': 'v', 'n': 2}|pprint)).should eq "{'k': 'v', 'n': 2}"
+    evaluate_expression(%([]|pprint)).should eq "[]"
+    evaluate_expression(%({}|pprint)).should eq "{}"
+    evaluate_expression(%([1]|pprint)).should eq "[1]"
+  end
+
+  it "pprint wraps a long string like pprint's string dispatcher" do
+    # Verified live against real ansible-playbook 2.19.11: a long plain
+    # string gets pprint's full string path (chunked reprs, parenthesized
+    # at top level), unlike containers which stay single-line.
+    evaluate_expression(%(s|pprint), {s: "hello world " * 8}).should eq \
+      "('hello world hello world hello world hello world hello world hello world '\n 'hello world hello world ')"
   end
 
   it "random" do

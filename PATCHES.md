@@ -68,6 +68,77 @@ Regression specs: new `describe "items"` in `spec/lib/filter_spec.cr`
 Hash, `[]` for an Undefined target, and `Crinja::TypeError` (with the
 exact message asserted) for both list and string targets. Full suite:
 826 examples, 0 failures, 0 errors, 11 pending.
+## crystal-play-0.9.54 (2026-09-19): `pprint` filter speaks Python `repr` (single-quote-preferred string quoting)
+
+Confirmed live bug in the `pprint` filter: it rendered strings with
+Crystal's double-quote inspect style - `{{ 'foo'|pprint }}` and
+`{{ 'bär'|pprint }}` produced `"foo"|"bär"`. Real Jinja2's `do_pprint`
+(jinja2/filters.py) calls Python's `pprint.pformat`, which reprs strings
+with Python's `repr()`: single quotes preferred (`'foo'`, `'bär'`),
+double quotes only when the string contains a single quote but no double
+quote (`"it's"`), and escaped apostrophes with single quotes when both
+quote kinds are present (`'both \' and "'`). Verified against BOTH real
+engines: live `python3`/`jinja2` 3.1.6 checks of the quote-choice matrix
+plus the control-character escapes (`\xHH` for non-printables, `\n`,
+`\t`, `\\`), and a real `ansible-playbook 2.19.11` run (`debug: msg:`
+with all five string cases through a pty) renders
+`'foo'|'bär'|"it's"|'he said "hi"'|'both \' and "'` - real Ansible
+matches vanilla Jinja2/Python for strings (both known false-positive
+traps re-checked: not an Ansible customization, not a harness artifact).
+
+The old engine was Crystal's `PrettyPrint`, which is Crystal-repr all
+the way down (`"foo"`, `true`, `nil`, `{'k' => "v"}`, wrapping in
+Crystal's format), so the fix is a full replacement: the filter now
+formats through a new `Crinja::PythonPprint` module porting
+`pprint.pformat`'s output semantics. Scalars render Python-style
+(`True`/`False`/`None`, Python float repr with zero-padded signed
+exponents and the 1e15/1e16 plain-decimal bounds: `1e20` → `1e+20`,
+`1e15` → `1000000000000000.0`, `-1.5e-7` → `-1.5e-07`; `undefined`
+renders `Undefined` like jinja2's `Undefined.__repr__`). Strings keep
+pprint's full string dispatcher: a repr wider than 80 columns is
+chunked on whitespace runs and wrapped in parens at top level -
+verified live against real ansible (`{{ longs | pprint }}` renders
+`('hello world ... '\n 'hello world ...')`).
+
+One divergence from vanilla CPython pprint, discovered while verifying
+the other types and resolved in real ansible's favor per this fork's
+precedent (the 0.9.26/0.9.27 native-types findings): ansible-core 2.19
+passes its own lazy-container types into pprint, whose repr is neither
+`list.__repr__` nor `dict.__repr__`, so pprint's list/dict dispatchers
+never engage - containers render as a SINGLE-LINE plain Python repr in
+insertion order even when far wider than 80 columns, and pprint's
+`sort_dicts=True` key sorting never happens. Verified live: a
+46-element list and an overflowing dict render on one line, and
+`{{ {'zebra': 1, 'apple': 2} | pprint }}` keeps insertion order where
+vanilla `pprint.pformat` sorts to `{'apple': 2, 'zebra': 1}`. Self-
+referential structures are guarded by an ancestor-id set rendering
+`<Recursion on list with id=...>` (Python's plain container repr would
+die with RecursionError there). One pre-existing evaluator divergence
+surfaced but is NOT part of this fix: a tuple literal in an expression
+(`{{ (1, 't')|pprint }}`) is built as an Array by Crinja's evaluator, so
+it renders `[1, 't']` where real ansible's template value is still a
+tuple and prints `(1, 't')` - that's the evaluator's tuple-literal
+representation, not pprint's. Known approximation: Python's
+`str.isprintable()` also excludes the Unicode categories Cf/Cs/Co/Cn,
+which Crystal's `Char#printable?` does not, so strings containing e.g. a
+soft hyphen (U+00AD) repr differently. The old `Crinja::PrettyPrint`
+class is kept (unused by the filter now) because `Value#pretty_print`
+and `Context#pretty_print` are typed against it.
+
+Fix: `src/lib/filter/var.cr`'s `pprint` filter now calls
+`Crinja::PythonPprint.pformat(target)` (accepting the `verbose` kwarg
+unchanged for API compatibility).
+
+Regression specs: `spec/lib/filter_spec.cr`'s `pprint` block now asserts
+the single-line list repr for the 0..1000 range spec (matching real
+ansible's no-wrapping container behavior) and gained cases for the
+quote-choice matrix (`'foo'`, `'bär'`, `"it's"`, `'he said "hi"'`,
+`'both \' and "'`), the control-character escapes (`\x07`, `\n`, `\t`,
+`\\`), the scalar types (`True`/`False`/`None`/int/float incl.
+`1e+20`/`1000000000000000.0`), the container forms (nested strings
+repr-quoted, insertion-order dicts, empty list/dict), and the long-
+string parens wrapping. Full fork spec suite: 827 examples, 0 failures,
+0 errors, 11 pending.
 
 ## crystal-play-0.9.51 (2026-09-19): `escape` filter uses markupsafe's numeric `&#34;`/`&#39;` entities
 
