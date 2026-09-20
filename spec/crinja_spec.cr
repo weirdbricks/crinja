@@ -1,5 +1,20 @@
 require "./spec_helper"
 
+def splat_env
+  env = Crinja.new
+  env.functions["foo"] = Crinja.function do
+    Crinja::Value.new(
+      arguments.varargs.map(&.to_s).join("") +
+      arguments.kwargs.values.map(&.to_s).join("")
+    )
+  end
+  env
+end
+
+def render_splat(tpl)
+  splat_env.from_string(tpl).render
+end
+
 describe Crinja do
   it ".render" do
     Crinja.render("Hello {{ name }}!", {name: "World"}).should eq "Hello World!"
@@ -121,6 +136,116 @@ describe Crinja do
 
     it "renders ordinary attribute access unaffected" do
       render("{{ user.name }}", {"user" => {"name" => "John"}}).should eq("John")
+    end
+  end
+
+  # Real Jinja2's `parse_call_args` (jinja2/parser.py 3.1.6) recognizes
+  # `*expr` (token "mul", at most once) and `**expr` (token "pow", at most
+  # once) splats in every parenthesized argument list - function, filter
+  # AND test calls - expanding them at call time into positional args and
+  # keyword args respectively. Ordering follows real Jinja2's own codegen
+  # (`signature` in jinja2/compiler.py emits plain args, plain kwargs,
+  # `*dyn_args`, `**dyn_kwargs`, in that order, regardless of source
+  # position): the positional splat expands AFTER all plain positional
+  # args, the keyword splat merges AFTER all plain kwargs. Verified live
+  # against real Jinja2 3.1.6 AND a real `ansible-playbook` 2.19 run with
+  # `debug: msg:` tasks (function-call splat grammar is pre-finalization
+  # parsing, untouched by Ansible's `finalize`/native-types
+  # customizations): `['a','b','c'] | join(*['-'])` -> `a-b-c` and
+  # `'abc' | replace(**{'old': 'b', 'new': 'X'})` -> `aXc` render
+  # identically in both. This fork's call-argument parser had no splat
+  # recognition at all - `{{ foo('a', c='d', e='f', *['b'], **{'g': 'h'})
+  # }}` (real Jinja2 with the concatenating `foo` below: `abdfh`) raised
+  # `Unexpected OPERATOR` at the `*` (differential-harness finding against
+  # real Jinja2 3.1.6's own upstream test suite).
+  describe "function-call argument splats (*expr / **expr)" do
+    it "renders the confirmed harness case with both splats" do
+      render_splat("{{ foo('a', c='d', e='f', *['b'], **{'g': 'h'}) }}").should eq("abdfh")
+    end
+
+    it "renders a call with only a positional splat" do
+      render_splat("{{ foo(*['x', 'y']) }}").should eq("xy")
+    end
+
+    it "renders a call with only a keyword splat" do
+      render_splat("{{ foo(**{'c': 'd', 'e': 'f'}) }}").should eq("df")
+    end
+
+    it "keeps a normal call without splats completely unaffected" do
+      render_splat("{{ foo('a', 'b', c='d') }}").should eq("abd")
+      render("{{ [1, 2] | join('-') }}").should eq("1-2")
+      render("{{ 'x' | upper }}").should eq("X")
+      render("{{ 4 is divisibleby 2 }}").should eq("True")
+    end
+
+    it "expands the positional splat after all plain positional args" do
+      render_splat("{{ foo('a', c='d', *['b']) }}").should eq("abd")
+    end
+
+    it "splat targets can be variables, not just literals" do
+      render_splat("{% set l = ['x'] %}{{ foo('a', *l) }}").should eq("ax")
+      render_splat("{% set d = {'g': 'h'} %}{{ foo(c='d', **d) }}").should eq("dh")
+    end
+
+    it "splats any iterable into positional args like real Python" do
+      render_splat("{{ foo(*'ab') }}").should eq("ab")
+      render_splat("{% set d = {'g': 'h'} %}{{ foo(*d) }}").should eq("g")
+    end
+
+    it "supports splats in filter and test calls" do
+      render("{{ ['a','b','c'] | join(*['-']) }}").should eq("a-b-c")
+      render("{{ 'abc' | replace(**{'old': 'b', 'new': 'X'}) }}").should eq("aXc")
+      render("{{ 4 is divisibleby(*[2]) }}").should eq("True")
+    end
+
+    it "merges keyword-splat entries after plain kwargs" do
+      render("{{ dict(c='d', **{'g': 'h'}) }}").should eq("{'c': 'd', 'g': 'h'}")
+    end
+
+    it "still tolerates a trailing comma" do
+      render_splat("{{ foo('a',) }}").should eq("a")
+    end
+
+    it "rejects two positional splats like real Jinja2" do
+      expect_raises(Crinja::TemplateSyntaxError, "invalid syntax for function call expression") do
+        render_splat("{{ foo(*['a'], *['b']) }}")
+      end
+    end
+
+    it "rejects two keyword splats like real Jinja2" do
+      expect_raises(Crinja::TemplateSyntaxError, "invalid syntax for function call expression") do
+        render_splat("{{ foo(**{'a': 1}, **{'b': 2}) }}")
+      end
+    end
+
+    it "rejects a plain positional arg after a splat like real Jinja2" do
+      expect_raises(Crinja::TemplateSyntaxError, "invalid syntax for function call expression") do
+        render_splat("{{ foo(*['a'], 'b') }}")
+      end
+    end
+
+    it "rejects a plain positional arg after kwargs like real Jinja2" do
+      expect_raises(Crinja::TemplateSyntaxError, "invalid syntax for function call expression") do
+        render_splat("{{ foo(c='d', 'e') }}")
+      end
+    end
+
+    it "rejects a positional splat after a keyword splat like real Jinja2" do
+      expect_raises(Crinja::TemplateSyntaxError, "invalid syntax for function call expression") do
+        render_splat("{{ foo(**{'k': 1}, *['a']) }}")
+      end
+    end
+
+    it "rejects a kwarg after a keyword splat like real Jinja2" do
+      expect_raises(Crinja::TemplateSyntaxError, "invalid syntax for function call expression") do
+        render_splat("{{ foo(**{'k': 1}, j='2') }}")
+      end
+    end
+
+    it "raises a TypeError on a duplicate keyword like real Python" do
+      expect_raises(Crinja::TypeError) do
+        render_splat("{{ foo(c='1', **{'c': '2'}) }}")
+      end
     end
   end
 end

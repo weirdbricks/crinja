@@ -18,6 +18,77 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.47 (2026-09-19): function-call argument splats (`*expr`/`**expr`) at call sites
+
+Real Jinja2's `parse_call_args` (jinja2/parser.py 3.1.6, verified against
+the installed source) is the shared grammar for EVERY parenthesized
+argument list - function calls, filter calls and test calls alike - and
+it recognizes, besides plain positional args and `name=value` kwargs, a
+`*expr` splat (token "mul", a single splatted iterable expanding into
+positional args) and a `**expr` splat (token "pow", a single splatted
+mapping expanding into keyword args), each allowed AT MOST ONCE. Its
+`ensure(...)` guards encode Python's own call-argument ordering exactly:
+a plain positional arg is only legal while no splat and no kwargs have
+been seen (`ensure(dyn_args is None and dyn_kwargs is None and not
+kwargs)`), a kwarg only while no `**` splat has been seen, a `*` splat
+only while no `**` splat has been seen - so `f('a', *['b'], c='d',
+**{'g': 'h'})` parses while `f(*['a'], 'b')`, `f(c='d', 'e')`,
+`f(**{'k': 1}, j='2')`, `f(*a, *b)` and `f(**a, *b)` all fail with
+"invalid syntax for function call expression" (each verified live
+against real Jinja2 3.1.6). Evaluation ordering follows real Jinja2's
+own codegen (`signature` in jinja2/compiler.py emits the Python call as
+plain args, plain kwargs, `*dyn_args`, `**dyn_kwargs` in that order
+regardless of source position): the positional splat expands AFTER all
+plain positional args, the keyword splat merges AFTER all plain kwargs.
+Also verified live: splat targets can be variables, not just literals,
+and the positional splat accepts ANY Python iterable (`f(*'ab')` ->
+args 'a', 'b'; `f(*{'a': 1})` -> arg 'a', the dict's keys), while a
+duplicate keyword is a call-time TypeError in real Python
+(`f(c='1', **{'c': '2'})` -> "got multiple values for keyword argument
+'c'"). Confirmed NOT an Ansible-side customization: a real local
+`ansible-playbook` 2.19 run with `debug: msg:` tasks reproducing the
+filter-call cases gives output identical to vanilla Jinja2 3.1.6
+(`['a','b','c'] | join(*['-'])` -> `a-b-c`, `'abc' |
+replace(**{'old': 'b', 'new': 'X'})` -> `aXc`) - argument-splat syntax
+is pure parser grammar, pre-finalization.
+
+This fork's call-argument parser had no splat recognition at all: it
+reused the generic expression-list machinery plus a keyword-list loop
+whose `parse_literal` step raised `Unexpected OPERATOR` at the `*` of
+`{{ foo('a', c='d', e='f', *['b'], **{'g': 'h'}) }}` - real Jinja2
+renders that exact call, with a positional-args-then-kwarg-values
+concatenating `foo`, as `abdfh` (confirmed differential-harness finding
+against real Jinja2 3.1.6's own upstream test suite; the fork's parser
+could not even reach evaluation). The fix replaces the parenthesized
+call-argument path with a direct mirror of real Jinja2's `parse_call_args`
+loop - same trailing-comma re-test, same five ordering/`ensure` rules
+with the same error message - and reuses the fork's existing
+`AST::SplashOperator` (already understood by the argument-list evaluator,
+which expands it in place at its child position, and now extended from
+list-only to every iterable real Python splats) for `*expr`, kept inline
+as the last positional (the grammar forbids anything positional after
+it, so expansion order equals real Jinja2's codegen order); `**expr` is
+stored in a new nilable `dynamic_kwargs` field on the call nodes - the
+AST equivalent of `nodes.Call.dyn_kwargs` - merged after the plain
+kwargs in both `CallExpression` and filter/test evaluation, raising a
+TypeError on a duplicate key. One pre-existing spec pinned the OLD
+error message for `{% macro m(a, b=1, c) %}` (a non-default parameter
+after a default one); the rejection itself is unchanged - real Jinja2's
+own macro-signature grammar (`parse_signature`) rejects the same shape
+with "non-default argument follows default argument" - only this fork's
+message became the shared loop's "invalid syntax for function call
+expression", so that expectation was updated.
+
+All expected outputs in the new regression specs
+(`spec/crinja_spec.cr` "function-call argument splats": the confirmed
+`abdfh` harness case, positional-splat-only, keyword-splat-only, and
+the no-splat sanity calls, plus splat-after-plain-kwargs ordering,
+variable/iterable splat targets, filter and test-call splats,
+kwargs-merge order, trailing comma, all five real-Jinja2 syntax-error
+shapes, and the duplicate-keyword TypeError) were verified live against
+real Jinja2 3.1.6 AND a real `ansible-playbook` 2.19 run. Full fork
+spec suite: 792 examples, 0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.46 (2026-09-19): Django-style numeric attribute access (`[1, 2, 3].0`, chained `[[1]].0.0`)
 
 Real Jinja2 supports "Django-style" dot-index syntax - `.0` on a list

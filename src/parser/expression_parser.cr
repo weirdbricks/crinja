@@ -269,13 +269,13 @@ class Crinja::Parser::ExpressionParser
         call = parse_call_expression identifier, with_parenthesis: with_parenthesis
 
         if is_test
-          left = AST::TestExpression.new(left, identifier, call.argumentlist, call.keyword_arguments).at(left, call)
+          left = AST::TestExpression.new(left, identifier, call.argumentlist, call.keyword_arguments, call.dynamic_kwargs).at(left, call)
 
           if not_location
             left = AST::UnaryExpression.new("not", left).at(not_location)
           end
         else
-          left = AST::FilterExpression.new(left, identifier, call.argumentlist, call.keyword_arguments).at(left, call)
+          left = AST::FilterExpression.new(left, identifier, call.argumentlist, call.keyword_arguments, call.dynamic_kwargs).at(left, call)
         end
       else
         return left
@@ -324,7 +324,7 @@ class Crinja::Parser::ExpressionParser
 
           call = parse_call_expression identifier, with_parenthesis: false
 
-          value = AST::TestExpression.new(value, identifier, call.argumentlist, call.keyword_arguments).at(value, call)
+          value = AST::TestExpression.new(value, identifier, call.argumentlist, call.keyword_arguments, call.dynamic_kwargs).at(value, call)
           value = AST::UnaryExpression.new("not", value).at(not_location, value.location_end) if not_location
         end
 
@@ -481,25 +481,122 @@ class Crinja::Parser::ExpressionParser
   NO_PARENS_CALL_STOP_WORDS = {"in", "if", "else", "and", "or", "recursive"}
 
   private def parse_call_expression(identifier, with_parenthesis = true)
-    end_tokens = if with_parenthesis
-                   [Kind::RIGHT_PAREN]
-                 else
-                   # Real Jinja2's grammar for a no-parenthesis filter/test
-                   # call (`is divisibleby 3`, `x | string`) takes at most
-                   # ONE bare argument, so the argument list must also end
-                   # at a COMMA: filters bind tighter than any binary
-                   # operator, so an argument like `'a' + port | string, ''`
-                   # (tuple element or call argument) legitimately places a
-                   # COMMA directly after the filter name. Without COMMA in
-                   # this list, parse_expression_list tried to parse the
-                   # COMMA itself as an implicit argument ("Unexpected
-                   # COMMA"). Found via rolehippie.nullmailer's
-                   # `remotes.j2` (round 811337 of krikri-playbook's
-                   # real-host benchmark).
-                   [Kind::EOF, Kind::EXPR_END, Kind::TAG_END, Kind::OPERATOR, Kind::PIPE, Kind::TEST, Kind::RIGHT_BRACKET, Kind::RIGHT_PAREN, Kind::COMMA]
-                 end
+    if with_parenthesis
+      parse_call_args(identifier)
+    else
+      parse_call_arguments_no_parenthesis(identifier)
+    end
+  end
 
-    args = if !with_parenthesis && current_token.kind == Kind::IDENTIFIER && NO_PARENS_CALL_STOP_WORDS.includes?(current_token.value)
+  # Real Jinja2's `parse_call_args` (jinja2/parser.py 3.1.6), the grammar
+  # for every parenthesized call: function calls, filter calls and test
+  # calls all share it. Its argument loop recognizes - besides plain
+  # positional args and `name=value` kwargs - a `*expr` SPLAT (token
+  # "mul") expanding into positional args and a `**expr` SPLAT (token
+  # "pow") expanding into keyword args, each allowed AT MOST ONCE
+  # (`ensure(dyn_args is None ...)` / `ensure(dyn_kwargs is None)` -
+  # real Jinja2 rejects `f(*a, *b)`, `f(**a, **b)`, `f(**a, *b)` with
+  # "invalid syntax for function call expression"). The remaining
+  # ordering rules encode Python's own call grammar: a plain positional
+  # arg is only allowed while no splat and no kwargs have been seen
+  # (`ensure(dyn_args is None and dyn_kwargs is None and not kwargs)`),
+  # a `name=value` kwarg only while no `**` splat has been seen, and a
+  # `*` splat only while no `**` splat has been seen - so `f('a', *['b'],
+  # c='d', **{'g': 'h'})` parses but `f(*['a'], 'b')`, `f(c='d', 'e')`
+  # and `f(**{'k': 1}, j='2')` all fail (all verified live against real
+  # Jinja2 3.1.6). Because of those rules a `*expr` splat is always the
+  # LAST positional argument, so it is kept inline as a `SplashOperator`
+  # child of the argument list (whose evaluator expands it in place,
+  # giving real Jinja2's codegen order: plain args, then `*dyn_args`);
+  # the `**expr` splat is stored in the call node's `dynamic_kwargs`
+  # slot (the AST equivalent of `nodes.Call.dyn_kwargs`). Trailing
+  # commas are legal (real Jinja2's own "support for trailing comma"
+  # re-test of `rparen` right after `expect("comma")`).
+  #
+  # This fork previously reused the generic expression-list machinery
+  # for call arguments, which has no notion of splats: the keyword
+  # list's own `parse_literal` loop raised `Unexpected OPERATOR` at the
+  # `*` of `{{ foo('a', c='d', e='f', *['b'], **{'g': 'h'}) }}` (the
+  # confirmed differential-harness finding against real Jinja2 3.1.6's
+  # own upstream test suite - real Jinja2 renders it as `abdfh`).
+  private def parse_call_args(identifier)
+    args = [] of AST::ExpressionNode
+    kwargs = Hash(AST::IdentifierLiteral, AST::ExpressionNode).new
+    dynamic_kwargs = nil
+
+    start_location = current_token.location
+    require_comma = false
+
+    while current_token.kind != Kind::RIGHT_PAREN
+      if require_comma
+        expect Kind::COMMA
+
+        # support for trailing comma
+        break if current_token.kind == Kind::RIGHT_PAREN
+
+        require_comma = false
+      end
+
+      if current_token.kind == Kind::OPERATOR && current_token.value == Symbol::OP_TIMES
+        if dynamic_kwargs || args.any?(&.is_a?(AST::SplashOperator))
+          raise "invalid syntax for function call expression"
+        end
+        splat_location = current_token.location
+        next_token
+        value = parse_expression
+        args << AST::SplashOperator.new(value).at(splat_location, value.location_end)
+      elsif current_token.kind == Kind::OPERATOR && current_token.value == Symbol::OP_POW
+        if dynamic_kwargs
+          raise "invalid syntax for function call expression"
+        end
+        next_token
+        dynamic_kwargs = parse_expression
+      else
+        expression = parse_expression
+
+        if current_token.kind == Kind::KW_ASSIGN
+          if dynamic_kwargs
+            raise "invalid syntax for function call expression"
+          end
+          keyword = expression.as?(AST::IdentifierLiteral)
+          unless keyword
+            raise "invalid syntax for function call expression"
+          end
+          next_token
+          kwargs[keyword] = parse_expression
+        else
+          if dynamic_kwargs || args.any?(&.is_a?(AST::SplashOperator)) || !kwargs.empty?
+            raise "invalid syntax for function call expression"
+          end
+          args << expression
+        end
+      end
+
+      require_comma = true
+    end
+
+    end_location = current_token.location
+    expect Kind::RIGHT_PAREN
+
+    AST::CallExpression.new(identifier, AST::ExpressionList.new(args).at(start_location, end_location), kwargs, dynamic_kwargs).at(identifier.location_start, end_location)
+  end
+
+  private def parse_call_arguments_no_parenthesis(identifier)
+    # Real Jinja2's grammar for a no-parenthesis filter/test
+    # call (`is divisibleby 3`, `x | string`) takes at most
+    # ONE bare argument, so the argument list must also end
+    # at a COMMA: filters bind tighter than any binary
+    # operator, so an argument like `'a' + port | string, ''`
+    # (tuple element or call argument) legitimately places a
+    # COMMA directly after the filter name. Without COMMA in
+    # this list, parse_expression_list tried to parse the
+    # COMMA itself as an implicit argument ("Unexpected
+    # COMMA"). Found via rolehippie.nullmailer's
+    # `remotes.j2` (round 811337 of krikri-playbook's
+    # real-host benchmark).
+    end_tokens = [Kind::EOF, Kind::EXPR_END, Kind::TAG_END, Kind::OPERATOR, Kind::PIPE, Kind::TEST, Kind::RIGHT_BRACKET, Kind::RIGHT_PAREN, Kind::COMMA]
+
+    args = if current_token.kind == Kind::IDENTIFIER && NO_PARENS_CALL_STOP_WORDS.includes?(current_token.value)
              AST::ExpressionList.new([] of AST::ExpressionNode).at(current_token.location)
            else
              parse_expression_list(end_tokens)
@@ -517,7 +614,6 @@ class Crinja::Parser::ExpressionParser
              end
 
     end_location = current_token.location
-    expect Kind::RIGHT_PAREN if with_parenthesis
     AST::CallExpression.new(identifier, args, kwargs).at(identifier.location_start, end_location)
   end
 

@@ -125,13 +125,40 @@ class Crinja::Evaluator
 
     argumentlist = evaluate(expression.argumentlist).as(Array(Value))
 
+    # Real Jinja2's `**mapping` call-argument splat (`nodes.Call.dyn_kwargs`,
+    # parsed by `parse_call_args`): the mapping expands into keyword args,
+    # merged AFTER the plain kwargs exactly as real Jinja2's own codegen
+    # emits the Python call (`signature` in jinja2/compiler.py writes the
+    # plain kwargs first and `**dyn_kwargs` last) - verified live against
+    # real Jinja2 3.1.6: `f(c='d', **{'g': 'h'})` sees kwargs c then g. A
+    # duplicate key is a call-time TypeError in real Python
+    # (`f(c='1', **{'c': '2'})` -> "got multiple values for keyword
+    # argument"), never a silent overwrite.
     keyword_arguments = Variables.new.tap do |args|
       expression.keyword_arguments.each do |(keyword, value_expression)|
         args[keyword.name] = value value_expression
       end
+      merge_dynamic_kwargs(args, expression.dynamic_kwargs, expression)
     end
 
     @env.execute_call(callable, argumentlist, keyword_arguments)
+  end
+
+  private def merge_dynamic_kwargs(args : Variables, dynamic_kwargs, expression)
+    return unless dynamic_kwargs
+
+    mapping = value(dynamic_kwargs).raw
+    unless mapping.is_a?(Dictionary)
+      raise TypeError.new(Value.new(mapping), "** call argument needs to be a mapping, got #{mapping.inspect}").at(expression)
+    end
+
+    mapping.each do |key, value|
+      name = key.to_s
+      if args.has_key?(name)
+        raise TypeError.new(Value.new(value), "got multiple values for keyword argument '#{name}'").at(expression)
+      end
+      args[name] = value
+    end
   end
 
   private def call_on_member(expression : AST::MemberExpression)
@@ -170,6 +197,7 @@ class Crinja::Evaluator
       expression.keyword_arguments.each do |(keyword, value_expression)|
         args[keyword.name] = value value_expression
       end
+      merge_dynamic_kwargs(args, expression.dynamic_kwargs, expression)
     end
 
     target = value expression.target
@@ -305,8 +333,20 @@ class Crinja::Evaluator
       if child.is_a?(AST::SplashOperator)
         splash_value = value(child.right)
         raw = splash_value.raw
-        if raw.is_a?(Array(Value))
+        # Real Python splats ANY iterable into positional call arguments
+        # (`f(*'ab')` -> args 'a', 'b'; `f(*{'a': 1})` -> arg 'a', the
+        # dict's keys) - verified live against real Jinja2 3.1.6.
+        # `Crinja::Tuple` is this fork's Python-tuple type, Array(Value)
+        # its evaluated form.
+        case raw
+        when Array(Value)
           values += raw
+        when Crinja::Tuple
+          values += raw.to_a
+        when String
+          raw.each_char { |char| values << Value.new(char) }
+        when Dictionary
+          raw.each_key { |key| values << key }
         else
           raise TypeError.new(splash_value, "#{child.right} needs to be an array for splash operator").at(expression)
         end

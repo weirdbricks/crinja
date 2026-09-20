@@ -25,8 +25,18 @@ describe Crinja::Tag::Macro do
       TPL
   end
 
+  # A non-default parameter after a default one is a syntax error in real
+  # Jinja2 too - its macro-signature grammar (`parse_signature`,
+  # jinja2/parser.py) rejects it with "non-default argument follows
+  # default argument"; this fork parses macro signatures through the
+  # shared `parse_call_args`-style call-argument loop (which enforces the
+  # same rule for plain positional call arguments: no plain positional
+  # argument after a kwarg), so the message is that loop's "invalid
+  # syntax for function call expression". The rejection itself is
+  # unchanged - only the message differs from the old "Expected
+  # KW_ASSIGN".
   it "arguments_defaults_nonsense" do
-    expect_raises(Crinja::TemplateSyntaxError, "Expected KW_ASSIGN") do
+    expect_raises(Crinja::TemplateSyntaxError, "invalid syntax for function call expression") do
       render(%({% macro m(a, b=1, c) %}a={{ a }}, b={{ b }}, c={{ c }}{% endmacro %}))
     end
   end
