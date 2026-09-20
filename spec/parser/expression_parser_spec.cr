@@ -154,6 +154,66 @@ describe Crinja::Parser::ExpressionParser do
     expression.as(Crinja::AST::StringLiteral).value.should eq %q("foo"'bar')
   end
 
+  # Real Ansible renders `.j2` template FILES through an unmodified
+  # vanilla-Jinja2 lexer (unlike inline `{{ }}` YAML task args, where
+  # Ansible's own AnsibleLexer doubles backslashes before Jinja's decode
+  # step): every escape decodes exactly like Python's `unicode-escape`
+  # codec, in BOTH `{{ }}` and `{% %}` - verified live with a real
+  # `ansible-playbook` 2.19.11 run over a `template:` action and a
+  # `lookup('template', ...)` on disk files containing `{{ "\t" }}`,
+  # `{{ "\1" }}`, `{% set y = "\1" %}{{ y }}`, `{% if "a\tb" | length
+  # == 3 %}` (tab decoded), `{{ "\x41" }}`, `{{ "\u0042" }}`,
+  # `{{ "\U00000043" }}`, `{{ "\101" }}` (octal), `{{ "\0" }}`,
+  # `{{ "\q" }}` and `{{ "foo(\d+)" }}` (unknown escapes literal).
+  # `\1` is octal chr(1) here, NOT a literal backreference: that
+  # verbatim passthrough only exists in the inline-arg path, which
+  # krikri renders with its own evaluator, not this shard.
+  it "parses escaped tab" do
+    expression = parse_expression(%q("foo\tbar"))
+    expression.should be_a(Crinja::AST::StringLiteral)
+    expression.as(Crinja::AST::StringLiteral).value.should eq "foo\tbar"
+  end
+
+  it "parses octal escapes" do
+    parse_expression(%q("\101")).as(Crinja::AST::StringLiteral).value.should eq "A"
+    parse_expression(%q("\1")).as(Crinja::AST::StringLiteral).value.should eq "\u{1}"
+    parse_expression(%q("\0")).as(Crinja::AST::StringLiteral).value.should eq "\u{0}"
+    parse_expression(%q("\0123")).as(Crinja::AST::StringLiteral).value.should eq "\n3"
+    parse_expression(%q("\777")).as(Crinja::AST::StringLiteral).value.should eq "\u{1FF}"
+  end
+
+  it "parses hex and unicode escapes" do
+    parse_expression(%q("\x41")).as(Crinja::AST::StringLiteral).value.should eq "A"
+    parse_expression(%q("\u0042")).as(Crinja::AST::StringLiteral).value.should eq "B"
+    parse_expression(%q("\U00000043")).as(Crinja::AST::StringLiteral).value.should eq "C"
+  end
+
+  it "parses C-style escapes" do
+    parse_expression(%q("\a\b\v\f\r")).as(Crinja::AST::StringLiteral).value.should eq "\a\b\v\f\r"
+  end
+
+  it "renders decoded escapes in expressions and tags" do
+    render(%q({{ "a\tb" }})).should eq "a\tb"
+    render(%q({{ "\1" }})).should eq "\u{1}"
+    render(%q({% set y = "\1" %}{{ y }})).should eq "\u{1}"
+    render(%q({% if "a\tb" | length == 3 %}LEN3{% endif %})).should eq "LEN3"
+  end
+
+  it "passes unknown escapes through literally" do
+    render(%q({{ "foo(\d+)" }})).should eq "foo(\\d+)"
+    render(%q({{ "\q" }})).should eq "\\q"
+    render(%q({{ "\9" }})).should eq "\\9"
+  end
+
+  it "raises on truncated unicode escapes" do
+    expect_raises(Crinja::TemplateSyntaxError, "truncated \\xXX escape") do
+      render(%q({{ "\xg1" }}))
+    end
+    expect_raises(Crinja::TemplateSyntaxError, "truncated \\uXXXX escape") do
+      render(%q({{ "\u00" }}))
+    end
+  end
+
   # Real Jinja2's parse_primary merges adjacent string literals into a
   # single string (Python's adjacent-string-literal syntax); all cases
   # below verified against real Jinja2 3.1.6 and a real

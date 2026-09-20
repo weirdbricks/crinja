@@ -105,18 +105,35 @@ module Crinja::Parser
           escaped = false
 
           case char
+          when 'a'
+            @buffer << '\a'
+          when 'b'
+            @buffer << '\b'
+          when 't'
+            @buffer << '\t'
           when 'n'
             @buffer << '\n'
-          when '"', '\''
+          when 'v'
+            @buffer << '\v'
+          when 'f'
+            @buffer << '\f'
+          when 'r'
+            @buffer << '\r'
+          when '"', '\'', Symbol::STRING_ESCAPE
             @buffer << char
-          when Symbol::STRING_ESCAPE
-            @buffer << Symbol::STRING_ESCAPE
+          when 'x'
+            consume_unicode_escape('x', 2)
+          when 'u'
+            consume_unicode_escape('u', 4)
+          when 'U'
+            consume_unicode_escape('U', 8)
+          when '0'..'7'
+            consume_octal_escape(char)
           else
-            # Real Python/Jinja2 string literals pass an unrecognized
-            # escape straight through as literal text (`'\1'` is the two
-            # characters `\` and `1` - not a real Python string escape,
-            # no error) - needed for real Ansible regex backreference
-            # syntax (`regex_search(pattern, '\1')`).
+            # Python's unicode-escape decode passes an unrecognized escape
+            # straight through as literal text (`'\q'` stays backslash+q;
+            # `\8`/`\9` are not octal digits and fare the same) - this is
+            # what keeps a regex pattern like `"foo(\d+)"` intact.
             @buffer << Symbol::STRING_ESCAPE
             @buffer << char
           end
@@ -135,6 +152,54 @@ module Crinja::Parser
       end
 
       @buffer.to_s
+    end
+
+    # Real Jinja2 decodes string tokens with Python's `unicode-escape`
+    # codec (jinja2/lexer.py 3.1.6: the token value is passed through
+    # `.encode("ascii", "backslashreplace").decode("unicode-escape")`),
+    # so `\xHH`, `\uHHHH` and `\UHHHHHHHH` are valid escapes and a
+    # truncated one (`"\xg1"`, `"\u00"`, `"\U0001"`) is a hard
+    # TemplateSyntaxError, not a passthrough (verified against real
+    # Jinja2 3.1.6).
+    private def consume_unicode_escape(letter : Char, digits : Int32)
+      value = 0
+      count = 0
+
+      while count < digits && hex_digit?(peek_char)
+        value = value * 16 + peek_char.to_i(16)
+        count += 1
+        next_char
+      end
+
+      if count < digits
+        raise Crinja::TemplateSyntaxError.new("truncated \\#{letter}#{"X" * digits} escape")
+      end
+
+      if value > 0x10FFFF
+        raise Crinja::TemplateSyntaxError.new("truncated \\#{letter}#{"X" * digits} escape")
+      end
+
+      @buffer << value.chr
+    end
+
+    private def hex_digit?(char : Char) : Bool
+      ('0'..'9').includes?(char) || ('a'..'f').includes?(char) || ('A'..'F').includes?(char)
+    end
+
+    # Octal escapes consume one to three digits (the first is already
+    # read); unlike Python source literals the decoded value is not
+    # limited to 255 - real Jinja2 renders `"\777"` as U+01FF.
+    private def consume_octal_escape(first : Char)
+      value = first.to_i(8)
+      count = 1
+
+      while count < 3 && ('0'..'7').includes?(peek_char)
+        value = value * 8 + peek_char.to_i(8)
+        count += 1
+        next_char
+      end
+
+      @buffer << value.chr
     end
 
     # Real Jinja2's numeric grammar lives in two regexes in
@@ -279,8 +344,8 @@ module Crinja::Parser
     private def base_digit?(char : Char, base : Int32) : Bool
       case base
       when 16 then char.hex?
-      when 8  then char.in?('0'..'7')
-      else char.in?('0', '1')
+      when  8 then char.in?('0'..'7')
+      else         char.in?('0', '1')
       end
     end
 
