@@ -339,6 +339,32 @@ describe Crinja::Filter do
     end
   end
 
+  # Real Jinja2's `do_random` is `random.choice(seq)`: a string target is
+  # an iterable of its own characters, so `{{ "1234567890"|random }}`
+  # returns one of "0".."9" (differential-harness finding; the fork used
+  # to raise `Cast from String to Indexable(T) failed`). Randomness can't
+  # be pinned to one exact output, so assert membership over repeated
+  # calls, like the existing range-target spec above.
+  it "random picks a character from a string target" do
+    20.times do
+      evaluate_expression(%("1234567890"|random)).should be_in "1234567890".chars.map(&.to_s)
+    end
+  end
+
+  it "random picks an element from a list target" do
+    20.times do
+      evaluate_expression(%(["a", "b", "c"]|random)).should be_in ["a", "b", "c"]
+    end
+  end
+
+  # Real Jinja2's `do_random` catches the IndexError from
+  # `random.choice` on an empty sequence and returns
+  # `environment.undefined("No random item, sequence was empty.")`
+  # (confirmed live: renders as ""), not a crash.
+  it "random on an empty sequence returns Undefined" do
+    evaluate_expression(%([]|random)).should eq ""
+  end
+
   it "reverse" do
     evaluate_expression(%("foobar"|reverse)).should eq "raboof"
     evaluate_expression(%([1, 2, 3]|reverse|list)).should eq "[3, 2, 1]"
