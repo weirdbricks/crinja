@@ -1,5 +1,3 @@
-require "html"
-
 # This class is used to process the result of a variable expression before it is output.
 # It tries to convert values to a meaningful string represenation similar to what `Object#to_s` does
 # but with a few adjustments compared to Crystal standard `to_s` methods.
@@ -62,7 +60,7 @@ struct Crinja::Finalizer
   protected def stringify(string : String)
     quote do
       if @escape
-        HTML.escape(string).to_s(@io)
+        Crinja::Util.markupsafe_escape(string).to_s(@io)
       else
         string.to_s(@io)
       end
