@@ -164,7 +164,7 @@ class Crinja
 
     # :ditto:
     def self.escape(string)
-      new HTML.escape string.to_s
+      new Crinja::Util.markupsafe_escape string.to_s
     end
 
     # Yields a builder which automatically escapes.

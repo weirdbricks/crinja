@@ -37,7 +37,7 @@ describe Crinja do
   end
 
   it "renders simple literals" do
-    render(%("Hello, {{ "World" ~ "\\" " }}{{ 2 }} {{ "A" | lower }}ll{{ "}}" }}!), {"name" => "John"}, autoescape: true).should eq("\"Hello, World&quot; 2 all}}!")
+    render(%("Hello, {{ "World" ~ "\\" " }}{{ 2 }} {{ "A" | lower }}ll{{ "}}" }}!), {"name" => "John"}, autoescape: true).should eq("\"Hello, World&#34; 2 all}}!")
   end
 
   it "renders if tag" do

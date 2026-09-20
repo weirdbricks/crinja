@@ -18,6 +18,53 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.51 (2026-09-19): `escape` filter uses markupsafe's numeric `&#34;`/`&#39;` entities
+
+Confirmed live bug in the `escape` filter (aliased `e`): the double
+quote was encoded with the named HTML entity `&quot;`, so
+`{{ '<">&'|escape }}` rendered `&lt;&quot;&gt;&amp;`. Real
+markupsafe's escape table (read from the installed source:
+`&` -> `&amp;`, `<` -> `&lt;`, `>` -> `&gt;`, `'` -> `&#39;`,
+`"` -> `&#34;` - all four non-ampersand entities are NUMERIC, never
+named) produces `&lt;&#34;&gt;&amp;`. Verified against BOTH real
+engines: `markupsafe.escape('< > & \' "')` prints
+`Markup('&lt; &gt; &amp; &#39; &#34;')`, and a real
+`ansible-playbook 2.19` run (`debug: msg: "{{ s | escape }}"` with all
+5 special characters in `s`, run through a pty) renders
+`&lt; &gt; &amp; &#34; &#39;` - confirming real Ansible matches
+vanilla Jinja2/markupsafe here, no Ansible customization involved
+(both known false-positive traps checked: not an Ansible
+customization, not a harness extraction artifact - verified live by
+the orchestrator).
+
+The root cause was Crystal's `HTML.escape` (which uses the named
+`&quot;` for `"`), and it was reached from several code paths, not
+just the filter itself: `SafeString.escape` (underlying
+`escape`/`e`/`forceescape`), the autoescape output path in the final
+value renderer, and `xmlattr`'s key/value escaping (real Jinja2's
+`do_xmlattr` escapes keys and values with markupsafe's `escape`
+too).
+
+Fix: the pre-existing `Crinja::Util.markupsafe_escape` helper (the
+exact markupsafe table, already used by `urlize`) is now THE shared
+escape table: `SafeString.escape`, the finalizer's autoescape
+stringification, and `xmlattr` all route through it instead of
+`HTML.escape` (so `{% autoescape true %}` output, `forceescape`,
+`tojson` under autoescape, and the HTML visitor inherit the fix with
+a single table). `escape_once` (Liquid-compat path) was left alone:
+its idempotent don't-double-escape semantics are a different beast,
+and it never claimed markupsafe parity. The stale in-repo comment
+claiming "Jinja2 encodes '\"' as '&#34;' instead of '&quot;'" was
+kept as documentation, now accurate.
+
+Regression specs: `spec/lib/filter_spec.cr`'s `escape` block now
+asserts `&lt;&#34;&gt;&amp;` and gained a case covering all 5 special
+characters individually and combined (both via expression literal and
+via a context value); the stale `&quot;` expectations in the `tojson`
+under-autoescape specs and `spec/crinja_spec.cr`'s autoescape literal
+render were corrected to the real-engine `&#34;` form. Full fork spec
+suite: 815 examples, 0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.50 (2026-09-19): `int` filter BigInt parsing + `base=` kwarg honored
 
 Two confirmed live bugs in the `int` filter, both verified against real

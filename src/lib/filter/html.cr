@@ -75,7 +75,7 @@ module Crinja::Filter
       target.as_h.each do |key, value|
         next if value.none? || value.undefined?
 
-        io << sprintf %( %s="%s"), HTML.escape(key.to_s), HTML.escape(value.to_s)
+        io << sprintf %( %s="%s"), Crinja::Util.markupsafe_escape(key.to_s), Crinja::Util.markupsafe_escape(value.to_s)
       end
     end
 
@@ -125,8 +125,14 @@ module Crinja::Util
   LEAD_PUNCT_RE = /^(?:[(<]|&lt;)+/
   TRAIL_PUNCT_RE = /(?:[)>.,\n]|&gt;)+$/
 
-  # Same escaping as `str(markupsafe.escape(text))` in real Jinja2's
-  # `urlize` (double quote becomes `&#34;`, not HTML.escape's `&quot;`).
+  # THE shared markupsafe-compatible escape table for this fork, used by
+  # the `escape`/`e`/`forceescape` filters, `SafeString.escape` (and thus
+  # autoescape output), `xmlattr` and `urlize`. Real markupsafe's escape
+  # table is `&` -> `&amp;`, `<` -> `&lt;`, `>` -> `&gt;`, `'` -> `&#39;`,
+  # `"` -> `&#34;` - all four non-ampersand entities are NUMERIC, unlike
+  # Crystal's `HTML.escape` (`&quot;` for `"`). Verified against real
+  # markupsafe and real `ansible-playbook` 2.19 (`{{ s | escape }}` with
+  # all 5 special characters renders `&lt; &gt; &amp; &#34; &#39;`).
   def self.markupsafe_escape(string : String)
     string.gsub("&", "&amp;").gsub("<", "&lt;").gsub(">", "&gt;").gsub("\"", "&#34;").gsub("'", "&#39;")
   end

@@ -173,10 +173,25 @@ describe Crinja::Filter do
     end
   end
 
-  # NOTE: Jinja2 encodes '"' as '&#34;' instead of '&quot;'
+  # NOTE: markupsafe encodes '"' as the NUMERIC entity '&#34;' and "'" as
+  # '&#39;' (Crystal's HTML.escape would use the named '&quot;') - verified
+  # against real markupsafe and real ansible-playbook 2.19.
   it "escape" do
-    evaluate_expression(%('<">&'|escape)).should eq "&lt;&quot;&gt;&amp;"
+    evaluate_expression(%('<">&'|escape)).should eq "&lt;&#34;&gt;&amp;"
     evaluate_expression(%(x|escape), {x: Crinja::SafeString.new("<div />")}).should eq "<div />"
+  end
+
+  # Regression spec for crystal-play-0.9.51: the escape filter (and every
+  # code path sharing its table) must use markupsafe's NUMERIC entities
+  # for all non-ampersand special characters.
+  it "escape uses markupsafe's numeric entity table for all special characters" do
+    evaluate_expression(%('<'|escape)).should eq "&lt;"
+    evaluate_expression(%('>'|escape)).should eq "&gt;"
+    evaluate_expression(%('&'|escape)).should eq "&amp;"
+    evaluate_expression(%('"'|escape)).should eq "&#34;"
+    evaluate_expression(%("'"|escape)).should eq "&#39;"
+    evaluate_expression(%( "<>&'\\"" |escape)).should eq "&lt;&gt;&amp;&#39;&#34;"
+    evaluate_expression(%(x|escape), {x: "<>&'\""}).should eq "&lt;&gt;&amp;&#39;&#34;"
   end
 
   it "strips tags" do
@@ -817,10 +832,9 @@ describe Crinja::Filter do
   describe "json_dump" do
     it "json_dump" do
       # original jinja2
-      # evaluate_expression(%(x|tojson), {x: {"foo" => "bar"}}, autoescape: true).should eq "{&#34;foo&#34;: &#34;bar&#34;}"
-      evaluate_expression(%(x|tojson), {x: {"foo" => "bar"}}, autoescape: true).should eq "{\n&quot;foo&quot;: &quot;bar&quot;\n}"
+      evaluate_expression(%(x|tojson), {x: {"foo" => "bar"}}, autoescape: true).should eq "{\n&#34;foo&#34;: &#34;bar&#34;\n}"
       # evaluate_expression(%(x|tojson), {x: %("bar')}, autoescape: true).should eq "&#34;&#34;bar\u0027&#34;"
-      evaluate_expression(%(x|tojson), {x: %("bar')}, autoescape: true).should eq "&quot;\\&quot;bar&#39;&quot;"
+      evaluate_expression(%(x|tojson), {x: %("bar')}, autoescape: true).should eq "&#34;\\&#34;bar&#39;&#34;"
     end
 
     pending "policies" do
