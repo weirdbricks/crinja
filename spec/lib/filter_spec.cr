@@ -285,6 +285,24 @@ describe Crinja::Filter do
     it "string" do
       evaluate_expression(%("3.52"|int)).should eq "3"
     end
+    it "arbitrary-precision large number (beyond Int64)" do
+      evaluate_expression(%("12345678901234567890"|int)).should eq "12345678901234567890"
+    end
+    it "arbitrary-precision large negative number (beyond Int64)" do
+      evaluate_expression(%("-12345678901234567890123"|int)).should eq "-12345678901234567890123"
+    end
+    it "base kwarg interprets digits in that base" do
+      evaluate_expression(%("011"|int(base=8))).should eq "9"
+    end
+    it "base kwarg falls back through float like do_int" do
+      evaluate_expression(%("9"|int(base=8))).should eq "9"
+    end
+    it "accepts Python-style underscores" do
+      evaluate_expression(%("1_000"|int)).should eq "1000"
+    end
+    it "huge float string keeps Python's exact integer" do
+      evaluate_expression(%("1e300"|int)).should eq BigInt.new(1e300).to_s
+    end
   end
 
   describe "join" do

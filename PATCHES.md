@@ -18,6 +18,67 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.50 (2026-09-19): `int` filter BigInt parsing + `base=` kwarg honored
+
+Two confirmed live bugs in the `int` filter, both verified against real
+Jinja2 3.1.6's installed source (`do_int` in jinja2/filters.py is just
+`int(value, base)` for strings and `int(value)` for already-numeric
+values, with an `int(float(value))` fallback on failure and `default`
+as the last resort) and against a real local `ansible-playbook` 2.19
+run (ansible's `int` is the same Jinja2 filter, no Ansible
+customization here - `debug: msg:` tasks confirmed every expectation
+below):
+
+1. Arbitrary-precision: `{{ '12345678901234567890'|int }}` rendered `0`
+   because the filter narrowed through `String#to_i64?`/`Int64`, and
+   anything past `Int64::MAX` failed the parse and silently fell back
+   to the filter's own `default` (0). Real Jinja2/Python ints are
+   arbitrary precision, so real ansible-playbook renders
+   `12345678901234567890` exactly (same for negatives beyond Int64).
+2. `base=` silently ignored: `{{ '011'|int(base=8) }}` rendered `11`.
+   Root cause: the filter passed `prefix: true` to
+   `String#to_i64?`, and Crystal's prefix detection OVERRIDES the
+   `base` argument, defaulting to base 10 whenever the string has no
+   `0x`/`0o`/`0b` prefix - so the `base` kwarg (positional or named)
+   never reached the parse at all. Real Jinja2 passes `base` straight
+   into Python's `int(value, base)`, so `'011'|int(base=8)` is `9`
+   (both real engines confirmed; `int` applies `base` to strings only
+   and ignores it for already-numeric values, which the fork already
+   did).
+
+Fix: string parsing now goes through `BigInt` (stdlib `big`, first
+user in the fork) with explicit prefix handling in a new
+`Crinja::Filter::IntParser`: an explicit `0x`/`0o`/`0b` prefix still
+selects its own base (the fork's pre-existing "prefix overwrites base"
+behavior, kept so the existing base-16/base-16-overwrite specs still
+hold; note real Jinja2/ansible render `'0x4d32'|int(0, 8)` and plain
+`'0x4d32'|int` as `0` since base 10 rejects the prefix and the float
+fallback fails too - a known, pre-existing divergence deliberately
+preserved, not introduced or extended by this fix), otherwise the
+given `base` applies as given. Python's other `int(str, base)` traits
+are honored: surrounding whitespace, leading sign, `1_000`-style
+underscores, and digits invalid for the base falling through
+`do_int`'s own `int(float(value))` branch (verified live against real
+ansible-playbook: `'9'|int(base=8)` renders `9`, not `0`). Results
+that fit in Int64 are wrapped as plain numbers so all realistic values
+keep full numeric semantics (comparisons, arithmetic, `sum`); only
+truly beyond-Int64 results fall back to their exact decimal string so
+rendering never truncates. The float fallback also converts through
+BigInt, so `'1e300'|int` now renders Python's exact 301-digit integer
+instead of collapsing to `default` (output verified identical to real
+Jinja2). Failure behavior is unchanged: unparseable strings still
+return `default` (0 unless overridden). No shard.yml change: `big` is
+Crystal stdlib (links libgmp, already present everywhere the fork
+builds today).
+
+Regression specs: `spec/lib/filter_spec.cr` `describe "int"` gained 7
+cases (beyond-Int64 positive, beyond-Int64 negative, `base=` octal
+interpretation, base-kwarg float fallback like `do_int`, underscores,
+huge-float exact integer; the existing 8 cases - small ints, positional
+base args with prefixes, `default=` fallback, float truncation,
+non-numeric strings - all still pass unchanged). Full fork spec suite:
+814 examples, 0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.48 (2026-09-19): `random` filter on a string target
 
 Real Jinja2's `do_random` (jinja2/filters.py 3.1.6, read from the
