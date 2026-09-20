@@ -84,10 +84,7 @@ Crinja.test({other: 0}, :greaterthan) { target.to_i.>(arguments["other"].to_i) }
 # registrations while the underlying `==`/`<`/`<=`/`>`/`>=` operators
 # worked fine). The registrations below deliberately delegate to the
 # very same comparator operator classes the binary operators dispatch
-# through, so the tests and the operators can never drift apart; the
-# symbol spellings (`==`, `!=`, ...) are reachable in real Jinja2 only
-# as string lookups (e.g. `selectattr("x", "==", 1)`) - `{{ 2 is == 3 }}`
-# is a TemplateSyntaxError there - and are not registered as bare names.
+# through, so the tests and the operators can never drift apart.
 Crinja.test({other: Crinja::UNDEFINED}, :eq) {
   Crinja::Operator::Equals.new.value(env, target, arguments["other"])
 }
@@ -103,6 +100,25 @@ Crinja.test({other: 0}, :gt) {
 Crinja.test({other: 0}, :ge) {
   Crinja::Operator::GreaterThanEquals.new.value(env, target, arguments["other"])
 }
+
+# Real Jinja2 3.1.6's `TESTS` dict (jinja2/tests.py) ALSO registers the
+# operator spellings themselves as bare test names - `"==": operator.eq`,
+# `"!=": operator.ne`, `"<": operator.lt`, `"<=": operator.le`,
+# `">": operator.gt`, `">=": operator.ge` - so a string lookup like
+# `selectattr("state", "==", "present")` is plain core-Jinja2. This fork
+# only registered the word spellings, so the operator spellings raised
+# `UnknownFeatureError: no test with name "==" registered` instead.
+# Resolved through the existing alias mechanism, pointing at the exact
+# same callables the word spellings resolve to. As in real Jinja2, this
+# only affects STRING lookups: `{{ 2 is == 3 }}` stays a parse error
+# there (the `is` operator consumes a test NAME, not an operator), so
+# there is no parser interaction to worry about.
+Crinja::Test::Library.alias "==", "eq"
+Crinja::Test::Library.alias "!=", "ne"
+Crinja::Test::Library.alias "<", "lt"
+Crinja::Test::Library.alias "<=", "le"
+Crinja::Test::Library.alias ">", "gt"
+Crinja::Test::Library.alias ">=", "ge"
 
 # Check if value is in seq.
 Crinja.test({seq: Array(Crinja::Value).new}, :in) {

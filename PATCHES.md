@@ -18,6 +18,77 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.56 (2026-09-20): selectattr/rejectattr/select/reject per-item dispatch hoisted out of the loop + operator-spelling test names
+
+Two changes found from the krikri side while profiling its
+`selectattr(...) | selectattr(...) | sum(...)` filter-chain pattern
+(CRINJA_PILOT_REPORT.md, "Filter #4"):
+
+### 1. Per-item dispatch cost in `select_reject_attr`/`select_reject` (and `map`)
+
+The `selectattr`/`rejectattr`/`select`/`reject` filters test each list
+item by building a fresh `Crinja::Arguments` per item and calling through
+`env.execute_call`. The test CALLABLE and the registry lookup were
+already resolved once per invocation, but the per-item `Arguments.new`
+allocated a throwaway `Variables.new` defaults hash for every single
+item (which `execute_call` then immediately overwrote with the
+callable's own defaults), and `Resolver.resolve_dig(attribute, item)`
+re-stringified the attribute name and re-ran its dotted-path
+`partition('.')` per item even though both are identical for every item.
+
+Fix (src/lib/filter/collections.cr, `select_reject_attr`,
+`select_reject`, and the varargs branch of `map`, which had the same
+shape): hoist the attribute-name stringification, the
+dotted-path classification, and the test/filter callable's defaults
+hash out of the per-item loop; each item now only digs its own
+attribute value into a shared-defaults `Arguments`. Behavior is
+unchanged: the test callable still runs through `execute_call` with the
+same varargs/kwargs sharing and defaults assignment as before, just
+without re-deriving loop-invariant state per item.
+
+Benchmark (this repo's new `scripts/bench_selectattr.cr`, release build,
+native filter callable invoked directly, 20000 iterations per
+measurement, best-of-three runs; "per item" = per_call / list size):
+
+| list size | selectattr('state','equalto','present') | per item | selectattr('state') truthy-only | per item |
+|-----------|------------------------------------------|----------|---------------------------------|----------|
+| 4         | ~530ns -> ~510ns                         | ~132 -> ~128ns | ~310ns -> ~330ns          | ~78 -> ~83ns |
+| 50        | ~5.9us -> ~4.6us                         | ~118 -> ~92ns  | ~3.1us -> ~2.7us          | ~62 -> ~54ns |
+| 500       | ~65.3us -> ~41.0us                       | ~131 -> ~82ns  | ~30.7us -> ~24.3us        | ~61 -> ~49ns |
+
+(~35% faster per item on the test-dispatch path at realistic inventory
+sizes; the remaining per-item cost is the attribute resolution and the
+test body itself, which are semantic, not bridging.) Ameba could not be
+re-run: ameba 1.6.4 does not compile under Crystal 1.21 (its postinstall
+fails on `Crystal::Lexer#next_string_array_token` having been removed) -
+pre-existing environment limitation, no ameba findings were introduced
+by inspection.
+
+### 2. Operator-spelling test names (`==`, `!=`, `<`, `<=`, `>`, `>=`)
+
+Real Jinja2 3.1.6's `TESTS` dict (jinja2/tests.py) registers the
+operator spellings themselves as first-class bare test names -
+`"==": operator.eq`, `"!=": operator.ne`, `"<": operator.lt`,
+`"<=": operator.le`, `">": operator.gt`, `">=": operator.ge` - alongside
+the word spellings. crystal-play-0.9.35 had added the SHORT word
+names (`eq`/`ne`/`lt`/`le`/`gt`/`ge`) but its comment incorrectly
+claimed the symbol spellings are "not registered as bare names" in real
+Jinja2; they are, and `selectattr("state", "==", "present")` therefore
+raised `UnknownFeatureError: no test with name "==" registered` here.
+
+Fix: registered all six operator spellings as `Crinja::Test::Library`
+aliases of the same callables the word spellings resolve to
+(src/lib/test/tests.cr). As in real Jinja2 this only affects STRING
+test-name lookups (select/reject/selectattr/rejectattr);
+`{{ 2 is == 3 }}` remains a parse error in both engines because the
+`is` operator consumes a test NAME, not an operator.
+
+Regression specs: "operator spellings as bare test names"
+(tests_spec.cr, all six spellings through select/reject) and
+"operator spelling test names in selectattr" (filter_spec.cr, all six
+through selectattr). Full fork spec suite: 842 examples, 0 failures,
+0 errors, 11 pending (all pre-existing pendings).
+
 ## crystal-play-0.9.55 (2026-09-19): arithmetic operators coerce Bool operands to 0/1 (Python bool-is-int subtype)
 
 Confirmed bug: arithmetic operators rejected Bool operands outright -

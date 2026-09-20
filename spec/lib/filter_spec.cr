@@ -887,6 +887,29 @@ describe Crinja::Filter do
         {users: users}).should eq "john|mike"
     end
 
+    # Real Jinja2 3.1.6 registers the operator spellings (`"=="`, `"!="`,
+    # `"<"`, `"<="`, `">"`, `">="`) as bare test names in its TESTS dict,
+    # so `selectattr("id", "==", 2)` is plain core-Jinja2.
+    it "operator spelling test names in selectattr" do
+      users = [
+        IdUser.new(1, "john"),
+        IdUser.new(2, "jane"),
+        IdUser.new(3, "mike"),
+      ]
+      evaluate_expression(%(users|selectattr("id", "==", 2)|map(attribute="name")|join("|")),
+        {users: users}).should eq "jane"
+      evaluate_expression(%(users|selectattr("id", "!=", 2)|map(attribute="name")|join("|")),
+        {users: users}).should eq "john|mike"
+      evaluate_expression(%(users|selectattr("id", "<", 3)|map(attribute="name")|join("|")),
+        {users: users}).should eq "john|jane"
+      evaluate_expression(%(users|selectattr("id", "<=", 2)|map(attribute="name")|join("|")),
+        {users: users}).should eq "john|jane"
+      evaluate_expression(%(users|selectattr("id", ">", 2)|map(attribute="name")|join("|")),
+        {users: users}).should eq "mike"
+      evaluate_expression(%(users|selectattr("id", ">=", 2)|map(attribute="name")|join("|")),
+        {users: users}).should eq "jane|mike"
+    end
+
     it "func_reject_attr" do
       users = [
         IdUser.new(1, "john"),
