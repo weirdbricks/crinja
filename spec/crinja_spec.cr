@@ -248,4 +248,38 @@ describe Crinja do
       end
     end
   end
+
+  # Real Jinja2 normalizes template data newlines in `Lexer.wrap`
+  # (jinja2/lexer.py 3.1.6): every data value - fixed text and raw-block
+  # content alike - goes through `_normalize_newlines`, replacing
+  # `newline_re = re.compile(r"(\r\n|\r|\n)")` with the environment's
+  # `newline_sequence` (default `\n`, which real Ansible also keeps), so
+  # a template with CRLF or bare-CR line endings renders LF-only
+  # (Jinja2's own upstream regression test `test_normalizing`). Verified
+  # live against a real Jinja2 3.1.6 Environment AND a real
+  # `ansible-playbook` 2.19 run (`template:` action over CRLF and bare-CR
+  # source files containing expressions, output inspected byte-wise with
+  # `cat -A`). This fork used to leave the `\r` characters of the source
+  # in the rendered output.
+  describe "CRLF / bare-CR template source newline normalization" do
+    it "renders a CRLF-ended template with LF-only line endings" do
+      render("1\r\n2\r\n3\r\n4\r\n").should eq("1\n2\n3\n4\n")
+    end
+
+    it "normalizes CRLF around template expressions" do
+      render("1\r\n{{ 'a' }}\r\n2\r\n").should eq("1\na\n2\n")
+    end
+
+    it "normalizes bare CR like real Jinja2's newline_re" do
+      render("a\rb\rc").should eq("a\nb\nc")
+    end
+
+    it "normalizes raw-block content like other data tokens" do
+      render("{% raw %}1\r\n2\r\n{% endraw %}").should eq("1\n2\n")
+    end
+
+    it "keeps block-tag newline handling working across CRLF endings" do
+      render("1\r\n{% if true %}\r\n2\r\n{% endif %}\r\n3", trim_blocks: true).should eq("1\n2\n3")
+    end
+  end
 end

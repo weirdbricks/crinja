@@ -64,6 +64,72 @@ assert membership over repeated calls rather than a single hardcoded
 value, since real randomness can't be pinned exactly - the same
 convention the pre-existing range-target `random` spec already used.
 Full fork spec suite: 803 examples, 0 failures, 0 errors, 11 pending.
+## crystal-play-0.9.49 (2026-09-19): CRLF/bare-CR template source newline normalization
+
+Real Jinja2 normalizes template data newlines in `Lexer.wrap`
+(jinja2/lexer.py 3.1.6, verified against the installed source): every
+TOKEN_DATA value - fixed text AND raw-block content alike - is passed
+through `_normalize_newlines`, which substitutes the regex
+`newline_re = re.compile(r"(\r\n|\r|\n)")` with the environment's
+`newline_sequence` (defaulting to `jinja2.defaults.NEWLINE_SEQUENCE`
+= `"\n"`; real Ansible keeps that same default - ansible-core 2.19's
+`TemplateOverrides.newline_sequence` and the `template:` action's
+`DEFAULT_NEWLINE_SEQUENCE` are both `"\n"`). Verified live against a
+real Jinja2 3.1.6 Environment AND a real `ansible-playbook` 2.19 run
+(`template:` action over CRLF and bare-CR source files containing
+expressions, output inspected byte-wise with `cat -A`): a template
+with CRLF or bare-CR line endings renders with LF-only line endings
+(Jinja2's own upstream regression test `test_normalizing` covers
+exactly this).
+
+This fork's lexer emitted fixed text and raw-block content verbatim,
+so a template written with CRLF line endings kept every `\r` in the
+rendered output (differential-harness finding against real Jinja2
+3.1.6's own upstream test suite). The fix applies the same
+normalization at this fork's equivalent of the `wrap` data-token
+branch: `TemplateLexer` now normalizes both its FIXED token producers
+(plain fixed text and raw-block content). Block-tag whitespace
+handling (`trim_blocks`/`lstrip_blocks`) is untouched and keeps
+working across CRLF source. Raw newline sequences INSIDE string
+literals belong to the same `wrap` branch's string side (normalized
+before string unescaping) and are deliberately left untouched here,
+together with string escape-sequence processing itself - see the
+finding below.
+
+**IMPORTANT OPEN FINDING (string escape sequences NOT changed)**: the
+companion differential-harness bugs (`{{ '\t' }}`, `{{ '\r' }}`,
+`{{ '\x00' }}` etc. rendering as the literal two-character sequences)
+were NOT fixed, because real ansible-playbook CONTRADICTS vanilla
+Jinja2 there, and real Ansible is this fork's ground truth. Verified
+live: vanilla Jinja2 3.1.6 processes string literals through Python's
+own `unicode-escape` codec (`wrap`: `_normalize_newlines(
+value_str[1:-1]).encode("ascii", "backslashreplace").decode(
+"unicode-escape")`, so `'\t'` -> TAB, `'\x41'` -> `A`, `'\1'` ->
+`\x01`, unknown escapes like `'\q'` pass through as `\q`), but a real
+`ansible-playbook` 2.19 run renders `{{ '\t' }}` as the literal
+two characters backslash+t, `{{ '\x41\x42' }}` as literal `\x41\x42`,
+and `{{ '\1' }}` as literal `\1` - by DELIBERATE design:
+ansible-core 2.19's `AnsibleLexer` (ansible/_internal/_templating/
+_jinja_bits.py) subclasses Jinja2's lexer and pre-escapes every
+backslash in TOKEN_STRING inside `{{ }}` variable expressions only
+(`escape_backslashes`, active by default at top-level template
+compile time; documented to avoid YAML-then-Jinja double processing
+and to keep `regex_replace('^(.*)_name$', '\1')` backreferences
+working), while `{% %}` blocks (`{% set y = 'a\tb' %}`) and
+conditionals are NOT affected. The fork's current half-state
+(unescape `\n`/`\\`/`\'`/`\"` but pass `\t`/`\r`/`\xHH` through)
+matches NEITHER engine; aligning it requires an explicit decision
+between vanilla-Jinja2 full unescaping and Ansible's
+`escape_backslashes` semantics (per-`{{ }}`-only backslash
+passthrough) and was therefore left for the orchestrator.
+
+All expected outputs in the new regression specs
+(`spec/crinja_spec.cr` "CRLF / bare-CR template source newline
+normalization": the CRLF-ended template, CRLF around expressions,
+bare CR, raw-block content, and trim_blocks across CRLF source) were
+verified live against real Jinja2 3.1.6 AND a real `ansible-playbook`
+2.19 run. Full fork spec suite: 805 examples, 0 failures, 0 errors,
+11 pending.
 
 ## crystal-play-0.9.47 (2026-09-19): function-call argument splats (`*expr`/`**expr`) at call sites
 

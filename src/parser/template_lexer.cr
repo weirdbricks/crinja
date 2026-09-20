@@ -157,15 +157,36 @@ class Crinja::Parser::TemplateLexer < Crinja::Parser::BaseLexer
       end
     else
       @token.kind = Kind::FIXED
-      @token.value = consume_fixed
+      @token.value = normalize_newlines(consume_fixed)
       return
     end
   end
 
   def next_token_raw
-    @token.value = consume_raw
+    @token.value = normalize_newlines(consume_raw)
     @token.kind = Kind::FIXED
     @is_raw = false
+  end
+
+  # Real Jinja2 normalizes template data newlines in `Lexer.wrap`
+  # (jinja2/lexer.py 3.1.6, verified against the installed source): every
+  # TOKEN_DATA value - fixed text AND raw-block content alike - is passed
+  # through `_normalize_newlines`, which substitutes the regex
+  # `newline_re = re.compile(r"(\r\n|\r|\n)")` with the environment's
+  # `newline_sequence` (defaulting to `\n`; real Ansible keeps that
+  # default, jinja2.defaults.NEWLINE_SEQUENCE). Verified live against a
+  # real Jinja2 3.1.6 Environment AND a real `ansible-playbook` 2.19 run
+  # (`template:` action over a CRLF source file containing expressions):
+  # a template with CRLF or bare-CR line endings renders with LF-only
+  # line endings (Jinja2's own upstream regression test
+  # `test_normalizing` covers exactly this). This lexer used to emit
+  # fixed text and raw content verbatim, leaving `\r` characters in the
+  # rendered output. Raw newline sequences INSIDE string literals are a
+  # separate `wrap` branch (also normalized, before string unescaping)
+  # that deliberately stays untouched here together with the string
+  # escape-sequence processing itself.
+  private def normalize_newlines(value : String) : String
+    value.gsub(/\r\n|\r/, "\n")
   end
 
   def consume_raw
