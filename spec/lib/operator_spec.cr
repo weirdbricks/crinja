@@ -133,6 +133,41 @@ describe Crinja::Operator do
     end
   end
 
+  describe "bool arithmetic (Python bool-is-int subtype)" do
+    it "multiplies int by comparison result" do
+      evaluate_expression("i * (j < 5)", {"i" => 2, "j" => 3}).should eq("2")
+    end
+    it "adds bool to int" do
+      evaluate_expression("true + 1").should eq("2")
+      evaluate_expression("false + 1").should eq("1")
+    end
+    it "subtracts bool from bool" do
+      evaluate_expression("true - false").should eq("1")
+    end
+    it "divides int by bool" do
+      evaluate_expression("5 / true").should eq("5.0")
+    end
+    it "multiplies bool by bool" do
+      evaluate_expression("true * true").should eq("1")
+    end
+    it "multiplies string by bool" do
+      evaluate_expression("'ab' * true").should eq("ab")
+    end
+    it "int divides and modulos with bool" do
+      evaluate_expression("5 // true").should eq("5")
+      evaluate_expression("5 % true").should eq("0")
+      evaluate_expression("true ** 2").should eq("1")
+    end
+    it "unary minus on bool" do
+      evaluate_expression("-true").should eq("-1")
+    end
+    it "still fails to multiply string" do
+      expect_raises(Crinja::Arguments::Error) do
+        evaluate_expression(%(42 * "a"))
+      end
+    end
+  end
+
   describe "and" do
     it "works" do
       evaluate_expression("true and true").should eq("True")

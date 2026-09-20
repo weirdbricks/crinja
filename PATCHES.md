@@ -18,6 +18,47 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.55 (2026-09-19): arithmetic operators coerce Bool operands to 0/1 (Python bool-is-int subtype)
+
+Confirmed bug: arithmetic operators rejected Bool operands outright -
+`{{ i * (j < 5) }}` with `i: 2, j: 3` raised
+`Crinja::Arguments::Error: Both operators need to be numeric (op1=Int32
+op2=Bool)`. Python's `bool` is a SUBTYPE of `int` (`isinstance(True,
+int)` is `True`, `True == 1`, `False == 0`), so real Jinja2 templates
+inherit Python's own arithmetic semantics for free - this is core
+Python, not a Jinja2 or Ansible feature.
+
+Verified live against BOTH real engines (Ansible-customization trap
+re-checked): vanilla Jinja2 3.1.6 (`python3 -c` with jinja2 3.1.6
+installed) renders `2 * (3 < 5)` as `2`, `True + 1` as `2`, `False + 1`
+as `1`, `True - False` as `1`, `5 / True` as `5.0` (float - real
+Jinja2's `/` is Python's true division, `//` is floor division: `5 //
+True` is `5`), `True * True` as `1`, and even sequence repetition
+coerces bools: `'ab' * True` is `'ab'` (and `-True` is `-1`). A real
+`ansible-playbook 2.19` run (`debug: msg:` tasks through a pty with
+`i: 2, j: 3` vars) matches vanilla Jinja2 on every single case - this
+is core Python semantics, so no Ansible customization touches it.
+
+Fix: new `Value#arith_number?` / `Value#as_arith_number` in
+`src/runtime/value.cr` accept a Bool as 1/0 wherever the arithmetic
+operators accepted a number, and all seven arithmetic operators now
+route through them: `+`, `-` (binary and unary), `*` (including the
+string-repetition branch, so `'ab' * true` works), `/`, `//`, `%`,
+`**`. Scope is deliberately arithmetic-only: `number?` itself is
+untouched, so the `number` test, numeric filters, and everything else
+that checks `number?` still reject bools; comparison operators
+(`==`, `<`, ...) were already correct and untouched; boolean logic
+(`and`/`or`/`not`) is unrelated; and string rendering still shows
+`True`/`False` (the existing `true + "x"` → `"Truex"` spec still
+passes).
+
+Regression specs: new `describe "bool arithmetic (Python bool-is-int
+subtype)"` in `spec/lib/operator_spec.cr` (between `**` and `and`)
+covering: the reported `i * (j < 5)` case with real bindings, bool+int,
+bool-bool, bool*bool, `5 / true` → `5.0`, `5 // true`, `5 % true`,
+`true ** 2`, `'ab' * true`, unary `-true`, and the unchanged
+string-operand error path. Full suite: 840 examples, 0 failures,
+0 errors, 11 pending.
 ## crystal-play-0.9.53 (2026-09-19): new `items` filter (Mapping pairs, empty for Undefined, TypeError otherwise)
 
 Confirmed bug: the `items` filter (real Jinja2 3.1+, `do_items` in
