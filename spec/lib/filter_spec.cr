@@ -320,6 +320,41 @@ describe Crinja::Filter do
     end
   end
 
+  describe "items" do
+    # Real Jinja2 3.1.6: `{{ {"a": 1, "b": 2}|items|list }}` renders
+    # `[('a', 1), ('b', 2)]`; the pairs are `.items()` tuples, same
+    # representation convention as `dictsort` above.
+    it "yields (key, value) pairs for a Hash" do
+      bindings = {"foo" => {"a" => 1, "b" => 2}}
+      evaluate_expression(%(foo|items|list), bindings).should eq %([['a', 1], ['b', 2]])
+    end
+
+    # Real Jinja2's `do_items` forgives ONLY Undefined:
+    # `if isinstance(value, Undefined): return` - an empty iterator,
+    # no exception (verified live; real ansible-playbook's own
+    # finalization rejects undefined vars at a different layer, but
+    # the filter itself yields nothing).
+    it "yields nothing for an Undefined target" do
+      evaluate_expression(%(missing|items|list)).should eq "[]"
+    end
+
+    # Anything else that is not a Mapping raises TypeError
+    # ("Can only get item pairs from a mapping.") in real Jinja2 3.1.6
+    # and verbatim in real ansible-playbook 2.19 - no deprecation
+    # warning, no empty fallback for non-Undefined inputs.
+    it "raises TypeError for a non-Mapping target (list)" do
+      expect_raises(Crinja::TypeError, "Can only get item pairs from a mapping.") do
+        evaluate_expression(%([1, 2, 3]|items|list))
+      end
+    end
+
+    it "raises TypeError for a non-Mapping target (string)" do
+      expect_raises(Crinja::TypeError, "Can only get item pairs from a mapping.") do
+        evaluate_expression(%("abc"|items|list))
+      end
+    end
+  end
+
   describe "join" do
     it "join" do
       evaluate_expression(%( [1, 2, 3]|join("|") )).should eq "1|2|3"

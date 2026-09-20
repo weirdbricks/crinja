@@ -18,6 +18,57 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.53 (2026-09-19): new `items` filter (Mapping pairs, empty for Undefined, TypeError otherwise)
+
+Confirmed bug: the `items` filter (real Jinja2 3.1+, `do_items` in
+`jinja2/filters.py`) was completely missing from this fork's filter
+library - `{{ d|items|list }}` raised
+`Crinja::FeatureLibrary::UnknownFeatureError: no filter with name
+"items" registered` (verified with a live render against this exact
+build by the orchestrator, not a harness extraction).
+
+The real 3.1.6 source (`/usr/lib/python3/dist-packages/jinja2/filters.py`,
+read directly) is three lines of behavior that are easy to get wrong by
+assuming: an `Undefined` target yields NOTHING (the generator returns
+early, so `{{ d|items|list }}` renders `[]` - the docstring says the
+filter exists precisely to be forgiving about unset mappings); a
+Mapping yields its `(key, value)` pairs; and ANY other value - list,
+string, scalar - raises `TypeError("Can only get item pairs from a
+mapping.")`. There is no deprecation warning for any input shape in
+3.1.6, and the non-Undefined-non-Mapping case is NOT forgiven the way
+Undefined is.
+
+Verified live against BOTH real engines (Ansible-customization and
+harness-extraction traps checked): vanilla Jinja2 3.1.6 renders
+`{{ {"a": 1, "b": 2}|items|list }}` as `[('a', 1), ('b', 2)]`,
+`{{ d|items|list }}` (undefined `d`) as `[]`, and raises exactly
+`TypeError: Can only get item pairs from a mapping.` for
+`[1,2,3]|items|list` and `"abc"|items|list`. A real
+`ansible-playbook 2.19` run (through a pty) matches vanilla Jinja2 on
+every point, surfacing the same TypeError message verbatim; the one
+apparent difference (`{{ d|items|list }}` failing for undefined `d`)
+is Ansible's own native-templating finalization rejecting undefined
+values at a different layer, not `items` behavior. Note this is core
+filter registration, not an Ansible-specific filter plugin.
+
+Fix: `Crinja.filter(:items)` in `src/lib/filter/collections.cr` (next
+to `list`, the other filter it composes with in the common
+`items|list` idiom). A Hash target (which includes `Dictionary`)
+yields `Crinja::Tuple` `(key, value)` pairs - the same representation
+`dictsort` already uses, so `{% for key, value in d|items %}` unpacking
+and `{{ d|items|list }}` rendering follow the established conventions.
+An Undefined target yields `[] of Value`. Anything else raises
+`Crinja::TypeError` with real Jinja2's exact message. The Mapping
+check is deliberately a plain Hash, not `Value#mapping?`: Crinja::Object
+attribute holders are the analog of plain Python objects, which real
+Jinja2's `isinstance(value, abc.Mapping)` also rejects.
+
+Regression specs: new `describe "items"` in `spec/lib/filter_spec.cr`
+(alphabetical slot between `int` and `join`) covering: pairs for a
+Hash, `[]` for an Undefined target, and `Crinja::TypeError` (with the
+exact message asserted) for both list and string targets. Full suite:
+826 examples, 0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.51 (2026-09-19): `escape` filter uses markupsafe's numeric `&#34;`/`&#39;` entities
 
 Confirmed live bug in the `escape` filter (aliased `e`): the double
