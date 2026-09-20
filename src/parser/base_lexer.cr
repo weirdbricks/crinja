@@ -158,7 +158,7 @@ module Crinja::Parser
     # `float(text)` accept them natively); the parser converts the
     # base-prefixed forms via Crystal's `to_i64(prefix: true)`, which
     # handles `0x`/`0o`/`0b` exactly like Python's `int(text, 0)`.
-    def consume_numeric
+    def consume_numeric(allow_float = true)
       @buffer.clear
       is_float = false
       has_exponent = false
@@ -214,6 +214,21 @@ module Crinja::Parser
             raise "Invalid number. Found char: '#{char}'(#{char.ord})"
           end
         when '.'
+          # Django-style numeric attribute access (`foo.0`, `foo.0.0`):
+          # when the number token starts right after a member-access dot,
+          # the fractional part must not merge in. Real Jinja2's float_re
+          # (jinja2/lexer.py 3.1.6) carries a `(?<!\.)` lookbehind for
+          # exactly this, so `].0.0` lexes as `.` `0` `.` `0` and
+          # parse_subscript (jinja2/parser.py) turns each dot+integer
+          # into a chained Getitem - real Jinja2 renders
+          # `{{ [[1]].0.0 }}` as `1`. Without it this lexer consumed the
+          # second `.0` into one FLOAT "0.0" and the parser failed with
+          # `Expected IDENTIFIER, got FLOAT` (differential-harness
+          # finding). With the fractional part forbidden the number can
+          # no longer continue past the dot, so the token simply ends
+          # here - the integer_re-only match real Jinja2 falls back to.
+          break unless allow_float
+
           raise "Invalid floating point number" if is_float
 
           # make sure the next char is numeric, otherwise the point can be a member operator
@@ -222,6 +237,11 @@ module Crinja::Parser
           @buffer << char
           is_float = true
         when 'e', 'E'
+          # integer_re has no exponent part, so a number that started
+          # right after a member-access dot also ends before one -
+          # same `(?<!\.)` lookbehind reasoning as the '.' case above.
+          break unless allow_float
+
           # exponent part of real Jinja2's `float_re`:
           # `e[+\-]?(\d+_)*\d+` - a bare `1e` or `1e+` (no exponent
           # digits) is not a number and is rejected, exactly like real

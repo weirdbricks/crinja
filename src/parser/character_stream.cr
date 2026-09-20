@@ -31,7 +31,18 @@ module Crinja::Parser
       end
     end
 
-    def next_char
+    # The raw character immediately before current_char (nil at the very
+    # start of the stream). Only meaningful for ASCII comparisons: a
+    # multi-byte character yields nil rather than any part of its bytes.
+    def prev_char : Char?
+      pos = @reader.pos
+      return nil if pos == 0
+
+      byte = @reader.string.byte_at(pos - 1)
+      byte < 128 ? byte.chr : nil
+    end
+
+    def next_char : Char
       char = @reader.next_char
 
       @position.column += 1

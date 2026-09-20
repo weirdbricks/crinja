@@ -18,6 +18,48 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.46 (2026-09-19): Django-style numeric attribute access (`[1, 2, 3].0`, chained `[[1]].0.0`)
+
+Real Jinja2 supports "Django-style" dot-index syntax - `.0` on a list
+means index 0, the same item lookup `[0]` compiles to - in two places.
+`parse_subscript` (jinja2/parser.py 3.1.6, verified against the installed
+source) accepts an INTEGER token directly after a member-access dot and
+builds a `nodes.Getitem` with it (`if attr_token.type != "integer": fail`
+- floats are explicitly rejected there), and the lexer's `float_re`
+(jinja2/lexer.py) carries a `(?<!\.)` lookbehind so a number whose raw
+text starts right after a `.` can NEVER lex as a float: `Environment.lex`
+on `{{ [[1]].0.0 }}` yields `.` `0` `.` `0` (operator/integer/operator/
+integer, confirmed live), which is the only way a chained `.0.0` can be
+two separate index accesses at all. Both real Jinja2 3.1.6 and a real
+`ansible-playbook` 2.19 run (`debug: msg:` tasks, outputs identical in
+both) render `{{ [1, 2, 3].0 }}|{{ [[1]].0.0 }}` as `1|1`.
+
+This fork's parser already accepted INTEGER after the POINT token, and
+the single-dot case (`[1, 2, 3].0`) already worked - but the lexer's
+number scan, once started on the digit after a member dot, happily
+consumed a following `.digit` as the fractional part, so `].0.0` lexed
+as `.` + one FLOAT "0.0" and the parser failed with `Expected
+IDENTIFIER, got FLOAT` (found via the differential harness running real
+Jinja2 3.1.6's own upstream test suite against this fork). The fix
+mirrors real Jinja2's exact mechanism at the same layer: the expression
+lexer now checks the raw character immediately before the number token
+start (a `prev_char` back-peek on the shared character stream, the
+equivalent of the regex lookbehind) and, when it is a `.` - i.e. the
+number starts right after a member-access dot - scans the token with the
+fractional and exponent parts disabled, exactly the integer_re-only
+match real Jinja2 falls back to; the token then ends at the next `.`,
+which the parser reads as another member access. Ordinary float literals
+(`{{ 1.5 }}`) and ordinary attribute access (`foo.bar`) are untouched:
+their number tokens never start right after a dot.
+
+All expected outputs in the new regression specs (token-level in
+`spec/parser/lexer_spec.cr`, AST-level in
+`spec/parser/expression_parser_spec.cr`, render-level in
+`spec/crinja_spec.cr`: the two confirmed cases plus the float-literal
+and `foo.bar` non-regression checks) were verified live against real
+Jinja2 3.1.6 AND a real `ansible-playbook` 2.19 run. Full fork spec
+suite: 783 examples, 0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.45 (2026-09-19): `{%- raw -%}`/`{% endraw -%}` whitespace-control modifiers on raw blocks
 
 Real Jinja2 never tokenizes raw content as template syntax: its raw block
