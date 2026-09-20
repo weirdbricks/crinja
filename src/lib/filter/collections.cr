@@ -18,6 +18,31 @@ module Crinja::Filter
     end
   end
 
+  # Real Jinja2's `do_items` (added in 3.1) is forgiving ONLY for an
+  # Undefined target: `if isinstance(value, Undefined): return` yields
+  # nothing, so `{{ d|items|list }}` renders `[]` for an unset `d`.
+  # For a Mapping it yields the `(key, value)` pairs (`.items()`), and
+  # for ANY other value - list, string, scalar - it raises
+  # `TypeError("Can only get item pairs from a mapping.")` (verified
+  # live against Jinja2 3.1.6 and real ansible-playbook 2.19, which
+  # surfaces the same message verbatim). No deprecation warning is
+  # emitted in 3.1.6 for any input shape. Pairs use the same
+  # `Crinja::Tuple` convention as `dictsort`. The Mapping check is a
+  # plain Hash (which includes `Dictionary`), matching `isinstance(
+  # value, abc.Mapping)` for the value shapes Crinja produces -
+  # Crinja::Object attribute holders are the analog of plain Python
+  # objects, which real Jinja2 also rejects.
+  Crinja.filter(:items) do
+    case raw = target.raw
+    when Undefined
+      [] of Value
+    when Hash
+      raw.map { |key, value| Value.new(Crinja::Tuple.from({key, value})) }
+    else
+      raise TypeError.new("Can only get item pairs from a mapping.")
+    end
+  end
+
   Crinja.filter({linecount: 2, fill_with: nil}, :batch) do
     fill_with = arguments["fill_with"]
     linecount = arguments["linecount"].to_i
