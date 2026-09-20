@@ -211,9 +211,16 @@ module Crinja::Filter
     else
       varargs = arguments.varargs
       filter = env.filters[varargs.shift.as_s]
+      # The filter callable and its declared defaults are identical for
+      # every item - only the per-item target changes. Resolving the
+      # callable's defaults once and sharing that hash across the per-item
+      # Arguments avoids Arguments.new allocating a fresh `Variables.new`
+      # for each item, which #execute_call immediately overwrote with the
+      # callable's own defaults anyway.
+      filter_defaults = filter.responds_to?(:defaults) ? filter.defaults : Variables.new
 
       target.map do |item|
-        args = Arguments.new(env, varargs, arguments.kwargs, target: item)
+        args = Arguments.new(env, varargs, arguments.kwargs, defaults: filter_defaults, target: item)
         arguments.env.execute_call(filter, args)
       end
     end
@@ -224,6 +231,10 @@ module Crinja::Filter
     varargs = arguments.varargs
 
     attribute = varargs.shift
+    # The attribute name (and whether it is a dotted path) is the same for
+    # every item - convert and classify it once, not once per item.
+    attr_name = attribute.to_s
+    dotted = attr_name.includes?('.')
 
     if varargs.size == 0
       # select based on attribute value, no filter
@@ -231,16 +242,24 @@ module Crinja::Filter
         # resolve_getattr only did a single-level lookup, so dotted
         # attributes like 'stat.exists' never resolved. Dig each segment,
         # like the sum/groupby/unique filters in this file already do.
-        Resolver.resolve_dig(attribute, item).truthy?
+        (dotted ? Resolver.resolve_dig(attr_name, item.raw) : Resolver.resolve_attribute(attr_name, item.raw)).truthy?
       end
     else
       test = env.tests[varargs.shift.as_s]
+      # The test callable and its declared defaults are identical for every
+      # item - only the per-item attribute value changes. Sharing the
+      # callable's defaults hash across the per-item Arguments avoids
+      # Arguments.new allocating a fresh `Variables.new` for each item,
+      # which #execute_call immediately overwrote with the callable's own
+      # defaults anyway.
+      test_defaults = test.responds_to?(:defaults) ? test.defaults : Variables.new
 
       target.{{ func.id }} do |item|
         # Same dotted-path fix as above: resolve_getattr treated the whole
         # 'stat.exists' string as one literal key; dig each segment like
         # sum/groupby/unique in this file already do.
-        args = Arguments.new(env, varargs, arguments.kwargs, target: Resolver.resolve_dig(attribute, item))
+        resolved = dotted ? Resolver.resolve_dig(attr_name, item.raw) : Resolver.resolve_attribute(attr_name, item.raw)
+        args = Arguments.new(env, varargs, arguments.kwargs, defaults: test_defaults, target: resolved)
         env.execute_call(test, args).truthy?
       end
     end
@@ -255,9 +274,14 @@ module Crinja::Filter
       target.{{ func.id }} &.truthy?
     else
       test = env.tests[varargs.shift.as_s]
+      # Same hoist as select_reject_attr: the test callable and its
+      # declared defaults are identical for every item, so share the
+      # callable's defaults hash instead of Arguments.new allocating a
+      # fresh discarded `Variables.new` per item.
+      test_defaults = test.responds_to?(:defaults) ? test.defaults : Variables.new
 
       target.{{ func.id }} do |item|
-        args = Arguments.new(env, varargs, arguments.kwargs, target: item)
+        args = Arguments.new(env, varargs, arguments.kwargs, defaults: test_defaults, target: item)
         env.execute_call(test, args).truthy?
       end
     end

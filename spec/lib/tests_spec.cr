@@ -82,6 +82,24 @@ describe Crinja::Test do
     it "eq matches the == operator on mixed numeric types" do
       evaluate_expression(%(2.0 is eq 2)).should eq "True"
     end
+
+    # Real Jinja2 3.1.6's TESTS dict (jinja2/tests.py) ALSO registers the
+    # operator spellings themselves as bare test names (`"==": operator.eq`,
+    # `"!=": operator.ne`, `"<": operator.lt`, `"<=": operator.le`,
+    # `">": operator.gt`, `">=": operator.ge`), reachable wherever a test
+    # name is looked up as a string (selectattr/rejectattr/select/reject).
+    # `{{ 2 is == 3 }}` stays a TemplateSyntaxError in real Jinja2 (the
+    # `is` operator consumes a test NAME, not an operator) and is not
+    # exercised here either.
+    it "operator spellings as bare test names" do
+      evaluate_expression(%([1, 2, 3, 4]|select("==", 2)|join("|"))).should eq "2"
+      evaluate_expression(%([1, 2, 3, 4]|reject("==", 2)|join("|"))).should eq "1|3|4"
+      evaluate_expression(%([1, 2, 3, 4]|select("!=", 2)|join("|"))).should eq "1|3|4"
+      evaluate_expression(%([1, 2, 3, 4]|select("<", 3)|join("|"))).should eq "1|2"
+      evaluate_expression(%([1, 2, 3, 4]|select("<=", 2)|join("|"))).should eq "1|2"
+      evaluate_expression(%([1, 2, 3, 4]|select(">", 2)|join("|"))).should eq "3|4"
+      evaluate_expression(%([1, 2, 3, 4]|select(">=", 3)|join("|"))).should eq "3|4"
+    end
   end
 
   it "sequence" do
