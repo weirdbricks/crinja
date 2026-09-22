@@ -104,6 +104,10 @@ module Crinja::Util
   # (which linked ANY `scheme://` and missed bare domains entirely - found
   # via a differential harness running real Jinja2 3.1.6's own upstream
   # test suite against this fork).
+  # word tokens longer than this are never matched against `HTTP_URL_RE`
+  # (defensive bound on regex backtracking for crafted almost-URL tokens)
+  HTTP_URL_MAX_TOKEN_LENGTH = 256
+
   HTTP_URL_RE = /^(
       (https?:\/\/|www\.)(([\w%\-]+\.)+)?([a-z]{2,63}|xn\-\-[\w%]{2,59})
     | ([\w%\-]{2,63}\.)+(com|net|int|edu|gov|org|info|mil)
@@ -193,7 +197,7 @@ module Crinja::Util
           end
         end
 
-        if HTTP_URL_RE.matches?(middle)
+        if middle.size <= HTTP_URL_MAX_TOKEN_LENGTH && HTTP_URL_RE.matches?(middle)
           # Real Jinja2 generates `https://` hrefs for schemeless and
           # `www.`-prefixed URLs, and only the DISPLAY is trimmed.
           if middle.starts_with?("https://") || middle.starts_with?("http://")

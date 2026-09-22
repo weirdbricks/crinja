@@ -18,6 +18,107 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.57 (2026-09-21): DeepSeek review batch: catchable zero-division, recursive for-loop depth guard, `Value#compare` symmetry fix, `urlize` backtracking guard
+
+Four fixes from an independent security review of this fork
+(`DEEPSEEK_CRINJA_REVIEW.md`, 2026-09-21): two HIGH crash/DoS findings, two
+MEDIUM findings (one correctness, one ReDoS). All four were first confirmed
+against this exact build with throwaway probe programs (kept out of the
+committed suite, which must never crash the runner), and the real-engine
+semantics were verified live against vanilla Jinja2 3.1.6 (python3 3.13.5,
+jinja2 and ansible present locally).
+
+### 1. HIGH: `//` and `%` with a zero right operand crashed the whole process
+
+`{{ 1 // 0 }}` and `{{ 5 % 0 }}` (and the float-zero forms `1 // 0.0`,
+`5 % 0.0`) raised Crystal's `DivisionByZeroError`, which is NOT a
+`Crinja::Error` and therefore sailed straight past the evaluator's
+`rescue e : Crinja::Error` location-attachment guard
+(src/runtime/evaluator.cr) and killed the process (probe-verified: uncaught
+`DivisionByZeroError: Division by 0`). Real Jinja2/Python raises
+`ZeroDivisionError`, which Jinja2 surfaces as an ordinary catchable template
+error - verified live against jinja2 3.1.6: `1 // 0` ->
+`ZeroDivisionError: integer division or modulo by zero`, `1 % 0` ->
+`ZeroDivisionError: integer modulo by zero` (note Python gives `%` its own
+message, distinct from `//`'s).
+
+Fix (src/lib/operator/int_divide.cr, src/lib/operator/modulo.cr): check the
+right operand - after the established `as_arith_number.to_i` conversion, so
+`1 // 0.0` raises under exactly the same lossy integer semantics this
+operator already had - and raise catchable `Crinja::Error` with Python's
+verbatim messages before performing the operation. `/` (true division) is
+untouched: it converts through `to_f`, and Crystal float division yields
+`Infinity`/`NaN` instead of raising, so it has no crash path.
+
+### 2. HIGH: unbounded `{% for ... recursive %}` recursion crashed the whole process
+
+The `Recursive` subclass of `ForLoop` (src/lib/util/for_loop.cr) recursed
+through `loop(...)` with no depth limit: a template over a deeply nested
+self-referencing data structure overflowed the Crystal stack and killed the
+process with an uncatchable abort (probe-verified: ~20000 nesting levels ->
+`Stack overflow (e.g., infinite or very deep recursion)`; in Crystal a stack
+overflow is not a catchable exception). Real Python has
+`sys.setrecursionlimit()` (default 1000) as a backstop; Crystal has nothing
+equivalent.
+
+Fix: `Crinja::Tag::For::ForLoop::Recursive::MAX_RECURSION_DEPTH = 50` (the
+review's suggested default), checked in `Recursive#call` against `self.depth`
+(the `depth0 + 1` value templates see as `loop.depth`) BEFORE creating the
+sub-loop: a loop at `loop.depth` 50 still renders, but calling `loop(...)`
+from it raises catchable `Crinja::Error` "maximum recursion depth exceeded in
+recursive for-loop". Chains up to 50 loop levels render unchanged (spec
+covers a 40-level chain). This is deliberately the ONLY recursion limit
+added in this batch: the review's remaining suggestions (general render
+timeout, overall macro-recursion-chain limit) are bigger design decisions
+left for a separate pass, as is its latent negative-`timedelta` finding.
+
+### 3. MEDIUM: copy-paste typo in `Value#compare` made string comparisons asymmetric
+
+The private `compare` in src/runtime/value.cr had
+`a.is_a?(String | SafeString) || a.is_a?(String | SafeString)` - the SAME
+condition twice, an upstream-inherited typo (the superseded dead `<=>`
+earlier in the same file has the intended symmetric shape with
+`otherraw.is_a?`). Probe-verified effect before the fix: `"foo" < 5`
+stringified both operands (`"foo" <=> "5"` -> False) but `5 < "foo"` fell
+through to `TypeError: cannot compare Int64 with String`.
+
+Fix: the second condition is now `b.is_a?(String | SafeString)`, so a mixed
+comparison takes the stringify-both path in either direction. Known
+divergence deliberately kept: real Jinja2 3.1.6 raises `TypeError` for mixed
+str/int ordering comparisons in BOTH directions (verified live: both
+`"foo" < 5` and `5 < "foo"` -> `'<' not supported between instances of 'str'
+and 'int'`); the fork's stringify-both fallback for a String first operand is
+upstream-inherited established behavior templates may rely on, so this patch
+only restores SYMMETRY and changes nothing for the common cases
+(string-vs-string unchanged, String-first-vs-non-string unchanged).
+
+### 4. MEDIUM: ReDoS guard for `urlize`'s `HTTP_URL_RE`
+
+`HTTP_URL_RE` (src/lib/filter/html.cr) has nested quantifiers in its
+domain-name alternatives; the `^`/`$` anchoring limits catastrophic
+backtracking, but a crafted long "almost-URL" word token fed through the
+per-word `HTTP_URL_RE.matches?` in `Util.urlize` could still backtrack badly
+on adversarial input.
+
+Fix: word tokens longer than 256 characters (new
+`HTTP_URL_MAX_TOKEN_LENGTH`) are never matched against `HTTP_URL_RE` and
+stay plain text. The guard is per-token inside `Util.urlize` (checked before
+every `HTTP_URL_RE.matches?` call); the regex itself is untouched, as are
+the linear `EMAIL_URL_RE` paths. Known divergence: real Jinja2 would still
+linkify an `http://...` URL longer than 256 characters (its path/query tail
+is unbounded); this fork trades that for the guard - real-world URLs are
+essentially never that long, so this is a deliberate security tradeoff, not
+a Jinja2-fidelity patch.
+
+Regression specs: zero-divisor cases in `spec/lib/operator_spec.cr`'s `//`
+and `%` describes (int and float zero, Python's exact per-operator messages
+asserted), a symmetric number-vs-string `<` case in the `comparators`/`<`
+describe, two recursive-depth specs in `spec/tags/for_spec.cr` (a 40-level
+chain renders, a 60-level chain raises with the exact message), and the
+over-long-token cases in `spec/lib/filter_spec.cr`'s `urlize` describe. Full
+fork spec suite: 848 examples, 0 failures, 0 errors, 11 pending (all
+pre-existing pendings; baseline was 842 at crystal-play-0.9.56).
+
 ## crystal-play-0.9.56 (2026-09-20): selectattr/rejectattr/select/reject per-item dispatch hoisted out of the loop + operator-spelling test names
 
 Two changes found from the krikri side while profiling its

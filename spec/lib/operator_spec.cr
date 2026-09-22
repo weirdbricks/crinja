@@ -80,6 +80,14 @@ describe Crinja::Operator do
         evaluate_expression(%(42 // "a"))
       end
     end
+    it "raises a catchable Crinja::Error on zero divisor (Python ZeroDivisionError parity)" do
+      expect_raises(Crinja::Error, "integer division or modulo by zero") do
+        evaluate_expression("4 // 0")
+      end
+      expect_raises(Crinja::Error, "integer division or modulo by zero") do
+        evaluate_expression("4 // 0.0")
+      end
+    end
   end
 
   describe "%" do
@@ -95,6 +103,14 @@ describe Crinja::Operator do
     it "fails to modulo string" do
       expect_raises(Crinja::Arguments::Error) do
         evaluate_expression(%(42 % "a"))
+      end
+    end
+    it "raises a catchable Crinja::Error on zero divisor (Python ZeroDivisionError parity)" do
+      expect_raises(Crinja::Error, "integer modulo by zero") do
+        evaluate_expression("5 % 0")
+      end
+      expect_raises(Crinja::Error, "integer modulo by zero") do
+        evaluate_expression("5 % 0.0")
       end
     end
   end
@@ -352,6 +368,11 @@ describe Crinja::Operator do
       it { evaluate_expression(%("a" < "a")).should eq "False" }
       it { evaluate_expression(%("a" < "b")).should eq "True" }
       it { evaluate_expression(%("b" < "a")).should eq "False" }
+      it "compares number vs string symmetrically (both directions stringify)" do
+        evaluate_expression(%(5 < "foo")).should eq "True"
+        evaluate_expression(%("foo" < 5)).should eq "False"
+        evaluate_expression(%("5" < "foo")).should eq "True"
+      end
     end
     describe "~" do
       it { evaluate_expression(%("b" ~ "a")).should eq "ba" }

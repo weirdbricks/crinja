@@ -531,7 +531,7 @@ struct Crinja::Value
       raise TypeError.new "Cannot compare Bool value"
     elsif a.is_a?(Number) && b.is_a?(Number)
       a <=> b
-    elsif a.is_a?(String | SafeString) || a.is_a?(String | SafeString)
+    elsif a.is_a?(String | SafeString) || b.is_a?(String | SafeString)
       a.to_s <=> b.to_s
     else
       raise TypeError.new("cannot compare #{a.class} with #{b.class}")

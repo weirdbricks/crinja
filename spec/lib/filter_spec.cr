@@ -598,6 +598,18 @@ describe Crinja::Filter do
         %(http://example.com/path?a=1&amp;b=2</a> bar)
     end
 
+    it "urlize does not run the HTTP URL regex on over-long tokens" do
+      # Backtracking guard: word tokens longer than 256 characters are
+      # never matched against HTTP_URL_RE, so a crafted almost-URL
+      # cannot trigger catastrophic regex backtracking. Real Jinja2
+      # would still linkify a long http:// URL; this fork trades that
+      # for the guard (see PATCHES.md, crystal-play-0.9.57).
+      long_url = "http://example.com/" + ("a" * 300)
+      evaluate_expression(%("foo #{long_url} bar"|urlize)).should eq("foo #{long_url} bar")
+      almost_url = ("a." * 130) + "aaa"
+      evaluate_expression(%("foo #{almost_url} bar"|urlize)).should eq("foo #{almost_url} bar")
+    end
+
     it "urlize trim_url_limit truncates display after limit chars" do
       evaluate_expression(%("foo http://example.com/verylongurlthatgoesonandonandon bar"|urlize(trim_url_limit=20))).should eq \
         %(foo <a href="http://example.com/verylongurlthatgoesonandonandon" rel="noopener">) +

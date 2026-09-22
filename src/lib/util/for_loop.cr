@@ -227,6 +227,8 @@ class Crinja::Tag::For::ForLoop
   class Recursive < ForLoop
     include Callable
 
+    MAX_RECURSION_DEPTH = 50
+
     setter depth0 : Int32 = 0
 
     def crinja_attribute(attr : Value) : Value
@@ -268,6 +270,10 @@ class Crinja::Tag::For::ForLoop
     end
 
     def call(arguments : Arguments)
+      if self.depth >= MAX_RECURSION_DEPTH
+        raise Crinja::Error.new("maximum recursion depth exceeded in recursive for-loop")
+      end
+
       sub_iterator = arguments.varargs.first
 
       sub_loop = self.class.new(@loop_runner, sub_iterator)

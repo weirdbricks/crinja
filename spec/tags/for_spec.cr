@@ -1,6 +1,22 @@
 require "../spec_helper"
 # tests based on https://github.com/pallets/jinja/blob/master/tests/test_core_tags.py
 
+private module ForLoopDepthSpec
+  UNDER = 40
+  OVER  = 60
+
+  alias Node = Hash(String, Int32 | Array(Node) | Nil)
+
+  def self.deep_node(depth : Int32) : Node
+    h = Hash(String, Int32 | Array(Node) | Nil).new
+    h["a"] = depth
+    h["b"] = depth == 0 ? nil : [deep_node(depth - 1)] of Node
+    h
+  end
+
+  TEMPLATE = "{% for item in seq recursive -%}[{{ item.a }}{% if item.b %}{{ loop(item.b) }}{% endif %}]{%- endfor %}"
+end
+
 describe Crinja::Tag::For do
   it "renders for loop with variables" do
     render(%({% for a in abc %}{{ loop.index }}: {{ a }}{% if loop.last %}.{% endif %}{% endfor %}), {"abc" => ["a", "b", "c"]}).should eq("1: a2: b3: c.")
@@ -182,6 +198,21 @@ describe Crinja::Tag::For do
 
   it "recursive_empty_loop_iter" do
     render(%({%- for item in foo recursive -%}{%- endfor -%}), {"foo" => [] of String}).should eq ""
+  end
+
+  it "recursive for-loop renders nesting just under the max recursion depth" do
+    render(
+      ForLoopDepthSpec::TEMPLATE,
+      {"seq" => [ForLoopDepthSpec.deep_node(ForLoopDepthSpec::UNDER - 1)]}
+    ).should contain("[1[0]]")
+  end
+
+  it "raises a catchable error when recursive for-loop exceeds the max recursion depth" do
+    # Before the depth guard, ~20000 nesting levels crashed the whole
+    # process with an uncatchable stack overflow (verified with a probe).
+    expect_raises(Crinja::Error, "maximum recursion depth exceeded in recursive for-loop") do
+      render(ForLoopDepthSpec::TEMPLATE, {"seq" => [ForLoopDepthSpec.deep_node(ForLoopDepthSpec::OVER - 1)]})
+    end
   end
 
   pending "call_in_loop" do
