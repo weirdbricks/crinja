@@ -60,7 +60,20 @@ class Crinja::Parser::TemplateLexer < Crinja::Parser::BaseLexer
       if check_for_end(state)
         @stack.pop
       else
+        # With `verbatim_expression_strings` enabled (krikri's inline
+        # task-param mode), only `{{ }}` print expressions lex string
+        # literals verbatim - real ansible-core 2.19's own AnsibleLexer
+        # handles only the `{{ }}` expression source, while `{% %}`
+        # statement literals keep vanilla-Jinja `unicode-escape` decoding
+        # (live-verified against real ansible-playbook 2.19.11:
+        # `msg: "{% set z = 'a\nb' %}{{ z | length }}-{{ 'a\nb' |
+        # length }}"` renders `3-4` - the statement decoded, the
+        # expression did not). Both tag kinds share this one
+        # ExpressionLexer instance, so the flag is forced off for tag
+        # content and restored to the config value afterwards.
+        expression_lexer.verbatim_string_literals = false
         next_token_tag
+        expression_lexer.verbatim_string_literals = config.verbatim_expression_strings
       end
     elsif state == note_state
       # skip

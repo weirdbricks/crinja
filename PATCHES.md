@@ -18,6 +18,62 @@ patches without warning. This fork exists so krikri can pin to
 a **tag it controls**, and so real source-level fixes (not monkey-patches)
 have somewhere to live.
 
+## crystal-play-0.9.58 (2026-09-22): `verbatim_expression_strings` - Ansible's inline `{{ }}` string-literal passthrough mode
+
+krikri renders its INLINE task-param templating (`{{ }}` in YAML task
+args, including a `{{ }}` embedded in a longer string) through this
+shard's shared environment, and after crystal-play-0.9.52 every string
+literal there decoded with full `unicode-escape` semantics - while real
+ansible-playbook does NOT decode inline. Live-verified against real
+`ansible-playbook` 2.19.11 (script -qec, YAML double-quoted scalars so
+YAML itself does no backslash processing):
+
+- `msg: "lit=[{{ 'V\1-\2' }}]"` renders `lit=[V\1-\2]` (real) vs the
+  control-character corruption `V<0x01>-<0x02>` (krikri before the fix;
+  `\1` was being read as an OCTAL escape).
+- `msg: "re=[{{ 'foo123bar' | regex_replace('(\d+)', 'X-\1-X') }}]"`
+  renders `re=[fooX-123-Xbar]` (real; the replacement keeps a working
+  regex BACKREFERENCE) vs `fooX-<0x01>-Xbar` (krikri before).
+- `'a\nb' | length` is 4 (real; the `\n` stays two characters),
+  `'3.12.1\n' | b64encode` encodes the two characters backslash-n
+  (`My4xMi4xXG4=`), `'a\\b'` stays two backslashes, `"a\'b"`/`'a\"b'`
+  keep their backslash, and only unknown escapes (`\q`, `\9`) passed
+  through - which was all this shard did before, decoded.
+- BUT inline `{% %}` STATEMENT literals DO decode in real Ansible
+  (`msg: "{% set z = 'a\nb' %}{{ z | length }}-{{ 'a\nb' | length
+  }}"` renders `3-4` - statement decoded, expression did not), and
+  `.j2` template FILES decode everywhere (crystal-play-0.9.52's live
+  verification, unchanged).
+
+The mechanism: ansible-core 2.19 lexes the `{{ }}` expression source of
+a task arg with its own AnsibleLexer, which doubles every backslash
+before Jinja's `unicode-escape` decode step - the net effect is exact
+passthrough of the literal's inner text (a backslash still pairs with
+the next character, so `'a\'b'` renders as the five characters `a\'b`).
+
+Fix: new `Config#verbatim_expression_strings` (default `false` =
+vanilla Jinja2, what `.j2` files need). `BaseLexer#consume_string`
+branches to a verbatim variant when the (lexer-level)
+`verbatim_string_literals` flag is set - raw passthrough with
+escape-pairing but no decoding - and `BaseLexer#initialize` seeds the
+flag from the config, so a standalone `ExpressionLexer` built with the
+environment config (krikri's bare-expression path) inherits it.
+`TemplateLexer` shares one ExpressionLexer instance between both tag
+kinds, so while lexing `{% %}` tag content it forces the flag off and
+restores the config value afterwards - statements keep decoding,
+expressions go verbatim, per the `3-4` live probe above. krikri sets
+the flag on its shared inline-render environment and drops the
+per-call-site backslash re-encoding workaround
+(`preserve_inline_string_escapes`, which would corrupt output in
+verbatim mode by leaving `\x5C` text in place) this fix replaces.
+
+Regression specs: `spec/parser/expression_parser_spec.cr` gains the
+verbatim matrix (digit/octal/hex escapes, `\\`, escaped quotes,
+unknown escapes, lengths, `replace` with a raw backreference arg, the
+escaped-quote pairing case), the statement-still-decodes case, and the
+both-kinds side-by-side `3-4` probe. Full fork suite: 852 examples,
+0 failures, 0 errors, 11 pending.
+
 ## crystal-play-0.9.57 (2026-09-21): DeepSeek review batch: catchable zero-division, recursive for-loop depth guard, `Value#compare` symmetry fix, `urlize` backtracking guard
 
 Four fixes from an independent security review of this fork

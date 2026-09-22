@@ -214,6 +214,61 @@ describe Crinja::Parser::ExpressionParser do
     end
   end
 
+  # `config.verbatim_expression_strings` (the Ansible inline task-arg
+  # mode): every backslash inside a `{{ }}` string literal survives
+  # verbatim - the net effect of real ansible-core 2.19's own AnsibleLexer
+  # doubling every backslash before Jinja's decode step, live-verified
+  # against real ansible-playbook 2.19.11 (`{{ 'V\1-\2' }}` renders the
+  # literal six characters, `regex_replace`'s replacement keeps a working
+  # backreference, `'a\nb' | length` is 4, b64encoding `'3.12.1\n'`
+  # encodes the two characters backslash-n). `{% %}` statement literals
+  # keep decoding.
+  it "passes string-literal escapes through verbatim in expressions when verbatim_expression_strings is set" do
+    env = Crinja.new
+    env.config.verbatim_expression_strings = true
+
+    env.from_string(%q({{ 'V\1-\2' }})).render.should eq %q(V\1-\2)
+    env.from_string(%q({{ 'a\nb' | length }})).render.should eq "4"
+    env.from_string(%q({{ 'a\\b' | length }})).render.should eq "4"
+    env.from_string(%q({{ 'a\\b' }})).render.should eq %q(a\\b)
+    env.from_string(%q({{ 'a\x41b' }})).render.should eq %q(a\x41b)
+    env.from_string(%q({{ 'a\101b' }})).render.should eq %q(a\101b)
+    env.from_string(%q({{ "a\'b" | length }})).render.should eq "4"
+    env.from_string(%q({{ 'a\qb' }})).render.should eq %q(a\qb)
+  end
+
+  it "keeps an escaped quote from terminating a verbatim string literal" do
+    env = Crinja.new
+    env.config.verbatim_expression_strings = true
+
+    # The backslash still pairs with the next character, so the quote it
+    # escapes does not end the literal - but the backslash itself is kept.
+    env.from_string(%q({{ 'a\'b' }})).render.should eq %q(a\'b)
+  end
+
+  it "verbatim_expression_strings keeps statement literals decoding" do
+    env = Crinja.new
+    env.config.verbatim_expression_strings = true
+
+    env.from_string(%q({% set y = '\1' %}{{ y }})).render.should eq "\u{1}"
+    env.from_string(%q({% if 'a\tb' | length == 3 %}LEN3{% endif %})).render.should eq "LEN3"
+    # Same template, both behaviors side by side - real Ansible renders
+    # exactly `3-4` here (live-verified 2.19.11).
+    env.from_string(%q({% set z = 'a\nb' %}{{ z | length }}-{{ 'a\nb' | length }})).render.should eq "3-4"
+  end
+
+  it "verbatim_expression_strings hands filters raw backslash text" do
+    env = Crinja.new
+    env.config.verbatim_expression_strings = true
+
+    # The regex-backreference shape: a filter receives the literal
+    # characters backslash-one (what makes it a working backreference in
+    # real Ansible's regex_replace), not the decoded chr(1) control
+    # character.
+    env.from_string(%q({{ '\1x' | length }})).render.should eq "3"
+    env.from_string(%q({{ 'a\1b\1' | replace('\1', 'X') }})).render.should eq "aXbX"
+  end
+
   # Real Jinja2's parse_primary merges adjacent string literals into a
   # single string (Python's adjacent-string-literal syntax); all cases
   # below verified against real Jinja2 3.1.6 and a real

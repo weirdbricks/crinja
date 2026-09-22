@@ -74,6 +74,23 @@ class Crinja::Config
   # This setting needs to be set at the creation of an environment.
   property register_defaults : Bool = true
 
+  # Ansible inline-templating compatibility: when `true`, string literals
+  # inside `{{ }}` print expressions keep every backslash verbatim instead
+  # of being decoded. Real ansible-core 2.19 lexes the `{{ }}` expression
+  # source of YAML task args with its own AnsibleLexer, which doubles every
+  # backslash before Jinja's `unicode-escape` decode step - the net effect
+  # is passthrough, so `{{ 'V\1-\2' }}` renders the literal six characters
+  # `V\1-\2` and a `regex_replace('(\d+)', 'X-\1-X')` replacement still
+  # carries a working backreference (live-verified against
+  # ansible-playbook 2.19.11). `{% %}` statement literals are NOT covered:
+  # real Ansible renders tag statements through the vanilla Jinja lexer,
+  # which decodes fully (`msg: "{% set z = 'a\nb' %}{{ z | length }}-{{
+  # 'a\nb' | length }}"` renders `3-4`), and TemplateLexer honors that
+  # split. The default `false` is vanilla Jinja2 behavior: every string
+  # literal decodes, in both tag kinds - what a `.j2` template FILE must
+  # do (see BaseLexer#consume_string).
+  property verbatim_expression_strings : Bool = false
+
   # Initializes a configuration object.
   def initialize(
     @autoescape = Autoescape.new,

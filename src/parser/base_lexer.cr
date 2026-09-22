@@ -23,7 +23,15 @@ module Crinja::Parser
     def initialize(@config : Crinja::Config, @stream : CharacterStream = CharacterStream.new)
       @token = Token.new
       @buffer = IO::Memory.new
+      @verbatim_string_literals = config.verbatim_expression_strings
     end
+
+    # String literals inside `{{ }}` print expressions pass their escapes
+    # through verbatim when the environment enabled the Ansible inline
+    # mode (`config.verbatim_expression_strings`); TemplateLexer forces this
+    # back off while lexing `{% %}` tag content, where real Ansible keeps
+    # vanilla-Jinja decoding. Set from the config in #initialize.
+    property? verbatim_string_literals : Bool = false
 
     delegate :next_char, :current_char, :peek_char, to: stream
 
@@ -90,6 +98,8 @@ module Crinja::Parser
     end
 
     def consume_string
+      return consume_string_verbatim if verbatim_string_literals?
+
       @buffer.clear
       escaped = false
       delimiter = current_char
@@ -139,6 +149,53 @@ module Crinja::Parser
           end
         else
           escaped = false
+          case char
+          when delimiter
+            next_char
+            break
+          when Symbol::STRING_ESCAPE
+            escaped = true
+          else
+            @buffer << char
+          end
+        end
+      end
+
+      @buffer.to_s
+    end
+
+    # The verbatim twin of #consume_string, for `config
+    # .verbatim_expression_strings` (real ansible-core 2.19 inline `{{ }}`
+    # task-arg templating, whose own AnsibleLexer doubles every backslash
+    # before Jinja's decode step - net effect: the string literal's inner
+    # text round-trips EXACTLY as written, no escape decoded at all, so
+    # `\1` stays a literal regex backreference and `'3.12.1\n'` b64encodes
+    # the two characters backslash-n, not a newline - both live-verified
+    # against real ansible-playbook 2.19.11). The backslash still pairs
+    # with the following character so a quote the source escaped does not
+    # terminate the literal (`'a\'b'` renders as `a\'b`, five characters,
+    # backslash included) - that pairing-without-decoding is exactly what
+    # Ansible's doubling produces after Jinja's decode. Raw newline
+    # normalization inside literals (Jinja2's wrap branch) is not applied
+    # here either; same trade-off as the decode path, where it lives in
+    # TemplateLexer's fixed-text normalization.
+    private def consume_string_verbatim
+      @buffer.clear
+      escaped = false
+      delimiter = current_char
+
+      while true
+        char = next_char
+
+        if char == Char::ZERO
+          raise "Unterminated string literal"
+        end
+
+        if escaped
+          escaped = false
+          @buffer << Symbol::STRING_ESCAPE
+          @buffer << char
+        else
           case char
           when delimiter
             next_char
