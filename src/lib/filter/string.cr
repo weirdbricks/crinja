@@ -1,4 +1,3 @@
-require "xml"
 
 module Crinja::Util
   # Python's own `str.splitlines()` (no keepends), which real Jinja2's
@@ -62,8 +61,34 @@ module Crinja::Filter
   end
 
   Crinja.filter :striptags do
-    xml = XML.parse_html target.to_s
-    xml.inner_text.gsub(/\s+/, " ").strip
+    # Pure-Crystal port of markupsafe's Markup.striptags (what real
+    # Ansible's jinja2 striptags filter delegates to): comments removed
+    # first (an unterminated comment is left alone), then tags removed by
+    # scanning to the NEXT '>' (markupsafe does not special-case quoted
+    # '>' inside attribute values - '<b title="x">c' loses
+    # '<b title="x">' and keeps the rest), whitespace collapsed to single
+    # spaces, and HTML entities unescaped LAST (so '&nbsp;' survives the
+    # whitespace collapse as U+00A0, matching Python's
+    # collapse-then-unescape order).
+    #
+    # This replaces XML.parse_html, whose libxml2 linkage dragged
+    # libxml2.so.2 into every binary that rendered a template (the last
+    # remaining libxml2 dependency in krikri's controller binary).
+    s = target.to_s
+
+    while true
+      start = s.index("<!--") || break
+      stop = s.index("-->", start) || break
+      s = "#{s[0...start]}#{s[(stop + 3)..]}"
+    end
+
+    while true
+      start = s.index("<") || break
+      stop = s.index(">", start) || break
+      s = "#{s[0...start]}#{s[(stop + 1)..]}"
+    end
+
+    HTML.unescape(s.split.map(&.strip).reject(&.empty?).join(" ")).strip
   end
 
   Crinja.filter(:format) { sprintf target.to_s, arguments.varargs }
