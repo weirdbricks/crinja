@@ -113,6 +113,46 @@ describe Crinja::Operator do
         evaluate_expression("5 % 0.0")
       end
     end
+
+    # A str LEFT operand makes `%` Python's old-style string formatting,
+    # not modulo (real Jinja2 gets this from CPython's str.__mod__). Only
+    # the numeric case was implemented before, so e.g. rolehippie.coredns's
+    # `' -dns.port=%d' % (port)` raised "Both operators need to be numeric".
+    describe "str % args (Python printf-style formatting)" do
+      it "%s renders a string" do
+        evaluate_expression(%("%s" % "hello")).should eq("hello")
+      end
+      it "%d renders an integer" do
+        evaluate_expression(%("%d" % 42)).should eq("42")
+      end
+      it "renders the coredns service.j2 idiom" do
+        evaluate_expression(%(" -dns.port=%d" % (53))).should eq(" -dns.port=53")
+      end
+      it "%x renders lowercase hex" do
+        evaluate_expression(%("%x" % 255)).should eq("ff")
+      end
+      it "%.2f renders fixed precision" do
+        evaluate_expression(%("%.2f" % 3.14159)).should eq("3.14")
+      end
+      it "%05d zero-pads to width" do
+        evaluate_expression(%("%05d" % 42)).should eq("00042")
+      end
+      it "%-10s left-justifies to width" do
+        evaluate_expression(%("[%-10s]" % "ab")).should eq("[ab        ]")
+      end
+      it "consumes a tuple positionally" do
+        evaluate_expression(%("%s-%s" % ("a", "b"))).should eq("a-b")
+      end
+      it "%+d signs a positive value" do
+        evaluate_expression(%("%+d" % 7)).should eq("+7")
+      end
+      it "collapses %% to a literal percent" do
+        evaluate_expression(%("%d%%" % 50)).should eq("50%")
+      end
+      it "renders a mapping by %(name)s key" do
+        evaluate_expression(%("%(greeting)s" % {"greeting": "hi"})).should eq("hi")
+      end
+    end
   end
 
   describe "*" do
